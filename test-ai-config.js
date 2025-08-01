@@ -5,8 +5,9 @@ console.log('Testing AI configuration...');
 
 // Check if extension is loaded
 if (typeof chrome !== 'undefined' && chrome.storage) {
-  chrome.storage.sync.get(['apiEndpoint', 'apiKey', 'model'], (cfg) => {
+  chrome.storage.sync.get(['apiEndpoint', 'apiKey', 'model', 'enableAI'], (cfg) => {
     console.log('Current AI configuration:');
+    console.log('- AI Analysis Enabled:', cfg.enableAI !== false ? 'YES' : 'NO');
     console.log('- API Endpoint:', cfg.apiEndpoint || 'NOT SET');
     console.log('- API Key:', cfg.apiKey ? 'SET (length: ' + cfg.apiKey.length + ')' : 'NOT SET');
     console.log('- Model:', cfg.model || 'gpt-4o-mini (default)');

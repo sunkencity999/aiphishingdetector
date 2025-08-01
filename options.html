@@ -19,17 +19,26 @@
   </p>
   <form id="optionsForm">
     <label>
-      API Endpoint
-      <input type="text" id="apiEndpoint" placeholder="https://api.openai.com/v1/chat/completions">
+      <input type="checkbox" id="enableAI" checked> Enable AI Analysis
     </label>
-    <label>
-      API Key
-      <input type="password" id="apiKey" placeholder="sk-...">
-    </label>
-    <label>
-      Model (optional)
-      <input type="text" id="model" placeholder="gpt-4o-mini">
-    </label>
+    <p style="font-size: 12px; color: #666; margin: 5px 0 15px 20px;">
+      When disabled, only heuristic analysis will be used (faster, more private)
+    </p>
+    
+    <div id="aiSettings">
+      <label>
+        API Endpoint
+        <input type="text" id="apiEndpoint" placeholder="https://api.openai.com/v1/chat/completions">
+      </label>
+      <label>
+        API Key
+        <input type="password" id="apiKey" placeholder="sk-...">
+      </label>
+      <label>
+        Model (optional)
+        <input type="text" id="model" placeholder="gpt-4o-mini">
+      </label>
+    </div>
     <button type="submit">Save</button>
     <span id="status" style="margin-left: 10px;"></span>
   </form>

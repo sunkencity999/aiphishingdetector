@@ -509,10 +509,18 @@
       highlightSuspiciousLinks(bodyEl, heuristics.suspiciousElements);
     }
 
-    // Retrieve endpoint and key, then call AI if configured
-    chrome.storage.sync.get(['apiEndpoint', 'apiKey'], (cfg) => {
+    // Retrieve AI settings and call AI if enabled and configured
+    chrome.storage.sync.get(['apiEndpoint', 'apiKey', 'enableAI'], (cfg) => {
       const endpoint = cfg.apiEndpoint;
       const key = cfg.apiKey;
+      const enableAI = cfg.enableAI !== false; // Default to true if not set
+      
+      if (!enableAI) {
+        console.log('AI analysis disabled by user setting');
+        finishWithScore(NaN, 'AI analysis disabled in settings');
+        return;
+      }
+      
       if (!endpoint || !key) {
         finishWithScore(NaN, null);
         return;

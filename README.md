@@ -32,11 +32,14 @@ A Chrome extension that analyzes email headers and bodies directly within your b
 ## Configuration
 
 1. Click the extension icon in the toolbar and select "Settings"
-2. Configure the API endpoint and key for AI-powered analysis:
+2. Choose your analysis mode:
+   - **Enable AI Analysis**: Toggle on/off to use AI-powered analysis
+   - When disabled, only fast heuristic analysis is used (more private, no API required)
+3. If AI analysis is enabled, configure:
    - **API Endpoint**: URL for the OpenAI-style API (e.g., `https://api.openai.com/v1/chat/completions`)
    - **API Key**: Your API key for authentication
    - **Model**: Optional model specification (defaults to `gpt-4o-mini`)
-3. Click "Save" to store your settings
+4. Click "Save" to store your settings
 
 ## Usage
 
