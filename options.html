@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Email Phishing Extension Options</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    label { display: block; margin-top: 12px; }
+    input[type="text"], input[type="password"] { width: 100%; padding: 8px; box-sizing: border-box; }
+    button { margin-top: 20px; padding: 8px 16px; }
+  </style>
+</head>
+<body>
+  <h1>Extension Settings</h1>
+  <p>
+    Configure the API endpoint and key used for AI‑powered phishing analysis.
+    The endpoint should accept OpenAI‑style chat completion requests.  Your
+    key will be stored locally on your machine using Chrome's sync storage.
+  </p>
+  <form id="optionsForm">
+    <label>
+      API Endpoint
+      <input type="text" id="apiEndpoint" placeholder="https://api.openai.com/v1/chat/completions">
+    </label>
+    <label>
+      API Key
+      <input type="password" id="apiKey" placeholder="sk-...">
+    </label>
+    <label>
+      Model (optional)
+      <input type="text" id="model" placeholder="gpt-3.5-turbo">
+    </label>
+    <button type="submit">Save</button>
+    <span id="status" style="margin-left: 10px;"></span>
+  </form>
+  <script src="options.js"></script>
+</body>
+</html>
