@@ -11,6 +11,12 @@ A Chrome extension that analyzes email headers and bodies directly within your b
   - Excessive links
   - Domain mismatches between sender and links
   - All-caps sentences and excessive exclamation marks
+  - **Email Authentication Analysis**: DKIM, SPF, and DMARC verification results
+    - Failed DKIM authentication: +15 points
+    - Failed SPF authentication: +12 points
+    - Failed DMARC authentication: +18 points
+    - Multiple authentication failures: additional +10 points
+    - Passed authentication slightly reduces phishing scores
 - **AI-Powered Analysis**: Optional integration with OpenAI-style APIs for advanced detection
 - **Link Highlighting**: Suspicious links are highlighted in red
 - **Safe List**: Mark emails as safe to skip future analysis

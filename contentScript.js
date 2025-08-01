@@ -31,7 +31,7 @@
    * score in the background.
    *
    * @param {string} body Plain text content of the email body.
-   * @param {object} header Parsed header information.
+   * @param {object} header Parsed header information including authentication results.
    * @returns {{score: number, details: string[], suspiciousElements: string[]}}
    */
   function computeHeuristics(body, header) {
@@ -108,6 +108,61 @@
     if (shoutCount > 0) {
       score += 5;
       details.push('Contains all‑caps sentences');
+    }
+
+    // Check email authentication results (DKIM, SPF, DMARC)
+    if (header && header.authentication) {
+      const auth = header.authentication;
+      let authFailures = 0;
+      const authDetails = [];
+      
+      // DKIM check
+      if (auth.dkim && auth.dkim.status === 'fail') {
+        authFailures++;
+        authDetails.push('DKIM authentication failed');
+        score += 15;
+      } else if (auth.dkim && auth.dkim.status === 'pass') {
+        authDetails.push('DKIM authentication passed');
+        // Slight reduction for passed DKIM
+        score = Math.max(0, score - 2);
+      }
+      
+      // SPF check
+      if (auth.spf && auth.spf.status === 'fail') {
+        authFailures++;
+        authDetails.push('SPF authentication failed');
+        score += 12;
+      } else if (auth.spf && auth.spf.status === 'pass') {
+        authDetails.push('SPF authentication passed');
+        score = Math.max(0, score - 2);
+      }
+      
+      // DMARC check
+      if (auth.dmarc && auth.dmarc.status === 'fail') {
+        authFailures++;
+        authDetails.push('DMARC authentication failed');
+        score += 18; // DMARC failure is more serious
+      } else if (auth.dmarc && auth.dmarc.status === 'pass') {
+        authDetails.push('DMARC authentication passed');
+        score = Math.max(0, score - 3);
+      }
+      
+      // Multiple authentication failures are very suspicious
+      if (authFailures >= 2) {
+        score += 10;
+        details.push(`Multiple authentication failures (${authFailures})`);
+      }
+      
+      // Add authentication details to the report
+      if (authDetails.length > 0) {
+        details.push(...authDetails);
+      }
+      
+      // If all three authentication methods fail, it's highly suspicious
+      if (authFailures >= 3) {
+        score += 15;
+        details.push('All email authentication methods failed - high phishing risk');
+      }
     }
 
     // Normalize final score within 0–70 range for heuristics.  AI analysis may bring it closer to 100.
@@ -255,6 +310,98 @@
   }
 
   /**
+   * Extract DKIM, SPF, and DMARC authentication results from email headers.
+   * This function attempts to find and parse authentication-results headers
+   * from the raw email source when available.
+   *
+   * @param {HTMLElement} messageContainer
+   * @returns {Promise<object>} Authentication results object
+   */
+  async function extractAuthenticationResults(messageContainer) {
+    const authResults = {
+      dkim: { status: 'unknown', details: '' },
+      spf: { status: 'unknown', details: '' },
+      dmarc: { status: 'unknown', details: '' }
+    };
+
+    try {
+      // Look for Gmail's "Show original" link or menu option
+      const showOriginalBtn = messageContainer.querySelector('[data-tooltip="Show original"]') ||
+                             messageContainer.querySelector('span[role="link"][aria-label*="original"]');
+      
+      if (!showOriginalBtn) {
+        // Try alternative method: look for message menu
+        const menuBtn = messageContainer.querySelector('div[data-tooltip="More"]');
+        if (menuBtn) {
+          // Click menu to reveal "Show original" option
+          menuBtn.click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Look for "Show original" in menu items
+          const menuItems = document.querySelectorAll('div[role="menuitem"] span');
+          const showOriginal = Array.from(menuItems).find(item => 
+            item.textContent && item.textContent.toLowerCase().includes('show original')
+          );
+          if (showOriginal) {
+            showOriginal.click();
+          }
+        }
+      }
+      
+      // If we can't access raw headers directly, try to extract from visible authentication info
+      // Gmail sometimes shows authentication results in the message details
+      const authInfo = messageContainer.querySelector('.aVW') || 
+                      messageContainer.querySelector('[data-legacy-thread-id]');
+      
+      if (authInfo) {
+        const authText = authInfo.innerText || authInfo.textContent || '';
+        
+        // Parse DKIM results
+        const dkimMatch = authText.match(/dkim=([a-z]+)(?:\s+\(([^)]+)\))?/i);
+        if (dkimMatch) {
+          authResults.dkim.status = dkimMatch[1].toLowerCase();
+          authResults.dkim.details = dkimMatch[2] || '';
+        }
+        
+        // Parse SPF results
+        const spfMatch = authText.match(/spf=([a-z]+)(?:\s+\(([^)]+)\))?/i);
+        if (spfMatch) {
+          authResults.spf.status = spfMatch[1].toLowerCase();
+          authResults.spf.details = spfMatch[2] || '';
+        }
+        
+        // Parse DMARC results
+        const dmarcMatch = authText.match(/dmarc=([a-z]+)(?:\s+\(([^)]+)\))?/i);
+        if (dmarcMatch) {
+          authResults.dmarc.status = dmarcMatch[1].toLowerCase();
+          authResults.dmarc.details = dmarcMatch[2] || '';
+        }
+      }
+      
+      // Alternative: try to extract from Gmail's security indicators
+      const securityInfo = messageContainer.querySelector('.aVW, .aVY');
+      if (securityInfo) {
+        const secText = securityInfo.innerText.toLowerCase();
+        
+        // Look for authentication failure indicators
+        if (secText.includes('not authenticated') || secText.includes('failed authentication')) {
+          authResults.dkim.status = 'fail';
+          authResults.spf.status = 'fail';
+        }
+        
+        if (secText.includes('signed by') || secText.includes('verified')) {
+          authResults.dkim.status = 'pass';
+        }
+      }
+      
+    } catch (err) {
+      console.warn('Error extracting authentication results:', err);
+    }
+    
+    return authResults;
+  }
+
+  /**
    * Analyse a specific email container element if it hasn't been
    * processed yet.  Extracts the body and header, computes the
    * heuristic score and requests AI analysis if configured.  Finally
@@ -262,7 +409,7 @@
    *
    * @param {HTMLElement} messageContainer
    */
-  function analyseMessage(messageContainer) {
+  async function analyseMessage(messageContainer) {
     if (!messageContainer ||
         messageContainer.getAttribute(ANALYZED_FLAG) ||
         messageContainer.getAttribute(SAFE_FLAG) === 'true') {
@@ -284,7 +431,7 @@
     const emailBody = bodyEl.innerText || bodyEl.textContent || '';
     if (!emailBody.trim()) return;
 
-    // Extract header information: from, to, subject
+    // Extract header information: from, to, subject, and authentication results
     const header = {};
     try {
       const fromEl = messageContainer.querySelector('span.gD');
@@ -299,8 +446,13 @@
       if (subjectEl) {
         header.subject = subjectEl.innerText;
       }
+      
+      // Extract authentication results from raw headers
+      const authResults = await extractAuthenticationResults(messageContainer);
+      header.authentication = authResults;
     } catch (err) {
       // header extraction failure is non‑fatal
+      console.warn('Header extraction error:', err);
     }
 
     // Compute heuristic score
@@ -383,14 +535,14 @@
       // Gmail nests each message thread inside a `.adn` element; we
       // broaden our search to `.adn` and `.a3s` for robustness.
       const messageContainers = document.querySelectorAll('div.adn, div[data-message-id]');
-      messageContainers.forEach(mc => {
-        analyseMessage(mc);
+      messageContainers.forEach(async (mc) => {
+        await analyseMessage(mc);
       });
     });
     observer.observe(document.body, { childList: true, subtree: true });
     // Run initial scan
     const initialContainers = document.querySelectorAll('div.adn, div[data-message-id]');
-    initialContainers.forEach(mc => analyseMessage(mc));
+    initialContainers.forEach(async (mc) => await analyseMessage(mc));
   }
 
   // Wait until Gmail is fully loaded, then begin observing messages.
