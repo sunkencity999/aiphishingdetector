@@ -38,6 +38,10 @@
     let score = 0;
     const details = [];
     const suspiciousElements = [];
+    
+    // Initialize suspicious domains - will be populated via API in the future
+    // Format: { domain: string, riskLevel: 'high'|'medium'|'low', lastUpdated: number }
+    const suspiciousDomains = [];
 
     // Lowercase version for case‑insensitive matching
     const lowerBody = (body || '').toLowerCase();
