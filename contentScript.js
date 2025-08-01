@@ -461,7 +461,47 @@
     // Function to finish by inserting indicator once we have final score
     function finishWithScore(llmScore, explanation) {
       const combined = combineScores(heuristics.score, llmScore);
-      insertIndicator(messageContainer, combined, heuristics.details.concat(explanation ? [explanation] : []), heuristics.suspiciousElements);
+      
+      // Prepare detailed analysis for display
+      const analysisDetails = [...heuristics.details];
+      
+      // Add scoring breakdown
+      analysisDetails.push(`\n--- Scoring Breakdown ---`);
+      analysisDetails.push(`Heuristic Score: ${heuristics.score}/70`);
+      
+      if (typeof llmScore === 'number' && !isNaN(llmScore)) {
+        analysisDetails.push(`AI Analysis Score: ${llmScore}/100`);
+        analysisDetails.push(`Combined Final Score: ${combined}/100 (40% heuristics + 60% AI)`);
+        
+        // Add AI explanation if available
+        if (explanation && explanation.trim()) {
+          // Try to parse if it looks like JSON
+          let aiExplanation = explanation;
+          try {
+            if (explanation.trim().startsWith('{') && explanation.trim().endsWith('}')) {
+              const parsed = JSON.parse(explanation);
+              if (parsed.explanation) {
+                aiExplanation = parsed.explanation;
+              } else if (parsed.reasoning) {
+                aiExplanation = parsed.reasoning;
+              }
+            }
+          } catch (e) {
+            // If parsing fails, use the original explanation
+          }
+          analysisDetails.push(`\nAI Analysis: ${aiExplanation}`);
+        }
+      } else {
+        analysisDetails.push(`AI Analysis: Not available`);
+        analysisDetails.push(`Final Score: ${combined}/100 (heuristics only)`);
+        
+        // If there's an error explanation, show it
+        if (explanation && explanation.includes('Error')) {
+          analysisDetails.push(`\nAI Status: ${explanation}`);
+        }
+      }
+      
+      insertIndicator(messageContainer, combined, analysisDetails, heuristics.suspiciousElements);
       // Highlight suspicious links in the body
       highlightSuspiciousLinks(bodyEl, heuristics.suspiciousElements);
     }
@@ -475,6 +515,7 @@
         return;
       }
       // Send message to background to perform AI analysis
+      console.log('Requesting AI analysis for email...');
       chrome.runtime.sendMessage({
         action: 'analyzeEmail',
         body: emailBody,
@@ -482,13 +523,19 @@
       }, (response) => {
         if (chrome.runtime.lastError) {
           console.error('AI analysis error:', chrome.runtime.lastError);
-          finishWithScore(NaN, null);
+          finishWithScore(NaN, `AI Error: ${chrome.runtime.lastError.message}`);
           return;
         }
-        if (response && typeof response.score === 'number') {
+        console.log('AI analysis response:', response);
+        if (response && response.error) {
+          console.warn('AI analysis failed:', response.error);
+          finishWithScore(NaN, `AI Error: ${response.error}`);
+        } else if (response && typeof response.score === 'number') {
+          console.log('AI analysis successful, score:', response.score);
           finishWithScore(response.score, response.explanation || null);
         } else {
-          finishWithScore(NaN, null);
+          console.warn('Invalid AI response format:', response);
+          finishWithScore(NaN, 'AI Error: Invalid response format');
         }
       });
     });

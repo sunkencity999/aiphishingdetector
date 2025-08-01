@@ -35,7 +35,7 @@ A Chrome extension that analyzes email headers and bodies directly within your b
 2. Configure the API endpoint and key for AI-powered analysis:
    - **API Endpoint**: URL for the OpenAI-style API (e.g., `https://api.openai.com/v1/chat/completions`)
    - **API Key**: Your API key for authentication
-   - **Model**: Optional model specification (defaults to `gpt-3.5-turbo`)
+   - **Model**: Optional model specification (defaults to `gpt-4o-mini`)
 3. Click "Save" to store your settings
 
 ## Usage

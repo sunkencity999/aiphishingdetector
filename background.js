@@ -18,11 +18,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.sync.get(['apiEndpoint', 'apiKey', 'model'], async (cfg) => {
       const endpoint = cfg.apiEndpoint;
       const apiKey = cfg.apiKey;
-      const model = cfg.model || 'gpt-3.5-turbo';
+      const model = cfg.model || 'gpt-4o-mini';
       if (!endpoint || !apiKey) {
+        console.log('AI analysis skipped: API configuration missing', { endpoint: !!endpoint, apiKey: !!apiKey });
         sendResponse({ error: 'API configuration missing' });
         return;
       }
+      
+      console.log('Starting AI analysis with config:', { endpoint, model, hasApiKey: !!apiKey });
       try {
         const systemPrompt =
           'You are a cybersecurity assistant trained to detect phishing emails. Given the email headers and body, analyse the content for indicators of phishing such as mismatched sender domains, urgent or threatening language, requests for personal information, and suspicious links. Respond in JSON with two keys: "score" (an integer 0–100 where higher values indicate a greater likelihood of phishing) and "explanation" (a concise sentence explaining the reasoning). If the email appears legitimate, use a low score such as below 40; if it appears malicious use a high score such as above 80.';
@@ -45,8 +48,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           body: JSON.stringify(payload)
         });
         if (!res.ok) {
-          console.error('LLM request failed', res.status, res.statusText);
-          sendResponse({ error: 'LLM request failed' });
+          const errorText = await res.text();
+          console.error('LLM request failed', {
+            status: res.status,
+            statusText: res.statusText,
+            error: errorText
+          });
+          sendResponse({ error: `LLM request failed: ${res.status} ${res.statusText}` });
           return;
         }
         const data = await res.json();
@@ -60,19 +68,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ error: 'Invalid LLM response format' });
           return;
         }
+        console.log('Raw AI response content:', content);
+        
+        // Strip markdown code blocks if present
+        let cleanContent = content;
+        if (content.includes('```json')) {
+          // Extract JSON from markdown code blocks
+          const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+          if (jsonMatch && jsonMatch[1]) {
+            cleanContent = jsonMatch[1].trim();
+            console.log('Extracted JSON from markdown:', cleanContent);
+          }
+        } else if (content.includes('```')) {
+          // Handle generic code blocks
+          const codeMatch = content.match(/```\s*([\s\S]*?)\s*```/);
+          if (codeMatch && codeMatch[1]) {
+            cleanContent = codeMatch[1].trim();
+            console.log('Extracted content from code block:', cleanContent);
+          }
+        }
+        
         let parsed;
         try {
-          parsed = JSON.parse(content);
+          parsed = JSON.parse(cleanContent);
+          console.log('Successfully parsed AI JSON:', parsed);
         } catch (err) {
           console.error('Failed to parse LLM JSON content', err, content);
-          // Attempt to extract number by regex
+          // Attempt to extract score and explanation from non-JSON response
           const numMatch = content.match(/(\d{1,3})/);
           const score = numMatch ? parseInt(numMatch[1], 10) : NaN;
-          sendResponse({ score: score, explanation: content });
+          
+          // Try to extract a meaningful explanation from the raw text
+          let explanation = content;
+          // Remove any JSON-like artifacts
+          explanation = explanation.replace(/[{}"]/g, '').trim();
+          // If it's too long, truncate it
+          if (explanation.length > 200) {
+            explanation = explanation.substring(0, 200) + '...';
+          }
+          
+          sendResponse({ score: score, explanation: explanation });
           return;
         }
+        
         const score = typeof parsed.score === 'number' ? parsed.score : NaN;
-        const explanation = parsed.explanation || null;
+        const explanation = parsed.explanation || parsed.reasoning || null;
+        console.log('Sending AI analysis result:', { score, explanation });
         sendResponse({ score, explanation });
       } catch (err) {
         console.error('Error contacting LLM', err);
