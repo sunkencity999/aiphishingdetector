@@ -55,8 +55,118 @@ A Chrome extension that analyzes email headers and bodies directly within your b
 
 The extension uses two layers of analysis:
 
-1. **Heuristic Analysis**: Client-side analysis that checks for common phishing indicators
-2. **AI Analysis**: Optional server-side analysis using an LLM to provide context-aware scoring
+1. **Heuristic Analysis**: Client-side analysis that checks for common phishing indicators:
+   - Suspicious sender domains and email addresses
+   - Generic greetings and impersonal salutations
+   - Mismatched or deceptive links
+   - Urgent/action-required language
+   - Email authentication failures (DKIM, SPF, DMARC)
+   - Suspicious URL patterns and domains
+   - Excessive use of capital letters and punctuation
+   - Common phishing keywords and phrases
+
+2. **AI Analysis**: Optional server-side analysis using an LLM to provide context-aware scoring:
+   - Analyzes email content for sophisticated social engineering
+   - Detects subtle phishing patterns that rules might miss
+   - Provides detailed reasoning for its assessment
+   - Considers the relationship between different elements of the email
+
+## Detection Capabilities
+
+### Sender Analysis
+
+- Detects spoofed or suspicious sender domains
+- Identifies lookalike domains (e.g., micros0ft.com)
+- Flags generic or suspicious sender names
+
+### Link Analysis
+
+- Highlights links where the display text doesn't match the actual URL
+- Detects URL shorteners and redirects
+- Identifies links to suspicious or mismatched domains
+- Warns about links to IP addresses
+
+### Content Analysis
+
+- Identifies urgent/action-required language
+- Detects generic greetings and impersonal salutations
+- Flags requests for sensitive information
+- Identifies threats or consequences for inaction
+
+### Authentication Checks
+
+- Verifies DKIM, SPF, and DMARC authentication
+- Detects email spoofing attempts
+- Checks for missing or failed authentication
+
+## Customization
+
+### Heuristic Sensitivity
+
+You can adjust the sensitivity of the heuristic analysis by modifying the weights in `contentScript.js`. Look for the `computeHeuristics` function to customize scoring.
+
+### Custom Keywords
+
+Add your own keywords to the detection lists in `contentScript.js`:
+
+- `urgentKeywords`
+- `actionKeywords`
+- `securityKeywords`
+- `financialKeywords`
+
+### Safe List Management
+
+Emails can be marked as safe through the UI, which adds them to Chrome's local storage. To manage the safe list:
+
+1. Open Chrome Developer Tools (F12)
+2. Go to Application > Local Storage > chrome-extension://[extension-id]/
+3. Look for the `safeList` key
+
+## Troubleshooting
+
+### Common Issues
+
+#### AI Analysis Not Working
+
+- Verify your API key and endpoint are correct
+- Check the browser console for error messages (F12 > Console)
+- Ensure your API key has sufficient permissions and quota
+
+#### False Positives/Negatives
+
+- Mark false positives as safe using the "Mark as Safe" button
+- For persistent issues, adjust the heuristic weights in `contentScript.js`
+- Consider enabling AI analysis for more accurate results
+
+#### Extension Not Loading
+
+- Make sure you've enabled Developer Mode in Chrome
+- Try reloading the extension from `chrome://extensions/`
+- Check for error messages in the browser console
+
+### Viewing Logs
+
+For debugging purposes, you can view detailed logs in the Chrome DevTools console (F12 > Console). The extension logs various events and analysis results.
+
+## Privacy
+
+### Data Collection
+
+- The extension processes all email content locally in your browser
+- When AI analysis is enabled, email content is sent to your configured API endpoint
+- No data is collected or stored by the extension itself
+
+### Safe Mode
+
+For maximum privacy, you can disable AI analysis in the settings to ensure all processing happens locally in your browser.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 The final score is a weighted combination of both analyses (40% heuristics, 60% AI).
 

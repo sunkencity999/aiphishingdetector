@@ -42,22 +42,69 @@
     // Lowercase version for case‑insensitive matching
     const lowerBody = (body || '').toLowerCase();
 
-    // Keyword list indicating urgency or sensitive information.
-    const keywords = [
-      'urgent', 'verify', 'password', 'account', 'bank', 'login', 'update',
-      'confirm', 'suspend', 'pay now', 'invoice', 'credit card', 'wire transfer',
-      'reset', 'security alert', 'click here'
+    // Enhanced keyword list for phishing detection
+    const urgentKeywords = [
+      'urgent', 'immediate', 'asap', 'expires', 'deadline', 'time sensitive',
+      'act now', 'limited time', 'expires today', 'final notice', 'last chance'
     ];
-    let keywordHits = 0;
-    keywords.forEach((kw) => {
-      if (lowerBody.includes(kw)) {
-        keywordHits += 1;
-      }
+    
+    const actionKeywords = [
+      'verify', 'confirm', 'update', 'validate', 'activate', 'click here',
+      'click below', 'click link', 'download', 'open attachment', 'view document'
+    ];
+    
+    const securityKeywords = [
+      'password', 'account', 'login', 'security', 'suspended', 'locked',
+      'compromised', 'unauthorized', 'breach', 'violation', 'alert'
+    ];
+    
+    const financialKeywords = [
+      'bank', 'payment', 'invoice', 'refund', 'credit card', 'wire transfer',
+      'tax', 'irs', 'paypal', 'amazon', 'apple', 'microsoft', 'google'
+    ];
+    
+    // Enhanced keyword scoring with different weights for different categories
+    let urgentHits = 0, actionHits = 0, securityHits = 0, financialHits = 0;
+    
+    urgentKeywords.forEach(kw => {
+      if (lowerBody.includes(kw)) urgentHits++;
     });
-    if (keywordHits > 0) {
-      const keywordScore = Math.min(30, keywordHits * 3);
-      score += keywordScore;
-      details.push(`Contains ${keywordHits} suspicious keyword${keywordHits > 1 ? 's' : ''}`);
+    actionKeywords.forEach(kw => {
+      if (lowerBody.includes(kw)) actionHits++;
+    });
+    securityKeywords.forEach(kw => {
+      if (lowerBody.includes(kw)) securityHits++;
+    });
+    financialKeywords.forEach(kw => {
+      if (lowerBody.includes(kw)) financialHits++;
+    });
+    
+    // Score based on keyword categories (higher weights for more dangerous combinations)
+    if (urgentHits > 0) {
+      score += Math.min(15, urgentHits * 8); // Urgent language is highly suspicious
+      details.push(`Contains ${urgentHits} urgent keyword${urgentHits > 1 ? 's' : ''}`);
+    }
+    if (actionHits > 0) {
+      score += Math.min(12, actionHits * 6); // Action requests are suspicious
+      details.push(`Contains ${actionHits} action keyword${actionHits > 1 ? 's' : ''}`);
+    }
+    if (securityHits > 0) {
+      score += Math.min(10, securityHits * 5); // Security-related terms
+      details.push(`Contains ${securityHits} security keyword${securityHits > 1 ? 's' : ''}`);
+    }
+    if (financialHits > 0) {
+      score += Math.min(8, financialHits * 4); // Financial terms
+      details.push(`Contains ${financialHits} financial keyword${financialHits > 1 ? 's' : ''}`);
+    }
+    
+    // Bonus points for dangerous combinations
+    if (urgentHits > 0 && actionHits > 0) {
+      score += 10;
+      details.push('Dangerous combination: urgent language + action request');
+    }
+    if (securityHits > 0 && actionHits > 0) {
+      score += 8;
+      details.push('Suspicious combination: security alert + action request');
     }
 
     // Count number of hyperlinks in the email body.  A high number of links can be a sign of spam/phishing.
@@ -66,6 +113,68 @@
       const linkScore = Math.min(20, (linkCount - 5) * 2);
       score += linkScore;
       details.push(`Contains many links (${linkCount})`);
+    }
+
+    // Enhanced generic greeting detection with pattern matching
+    const genericGreetingPatterns = [
+      /^\s*(dear|hello|hi|greetings|good\s+(morning|afternoon|evening)|attention|to whom it may concern|valued customer|dear (customer|user|sir|madam|sir\/madam|account holder|client|member|valued member|valued client|account team|support team|it team|security team|billing department|payroll|hr|human resources|administrator))(\s+[^\s,]+)?[,\s]*$/i,
+      /^\s*(dear|hello|hi)\s+[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\s*,?\s*$/i,  // Email address as name
+      /^\s*(dear|hello|hi)\s+[a-z]+\s*[0-9]+/i,  // Generic name with number (e.g., "User123")
+      /^\s*(dear|hello|hi)\s+[a-z]+\s*(department|team|support|helpdesk)/i
+    ];
+  
+    const emailBodyLower = body.toLowerCase();
+    const firstLine = emailBodyLower.split('\n')[0].trim();
+  
+    // Check for generic greetings in first line
+    const isGenericGreeting = genericGreetingPatterns.some(pattern => pattern.test(firstLine));
+  
+    // Also check common second-line greetings if first line is just a name
+    let secondLineGreeting = false;
+    if (!isGenericGreeting && emailBodyLower.split('\n').length > 1) {
+      const secondLine = emailBodyLower.split('\n')[1].trim();
+      secondLineGreeting = genericGreetingPatterns.some(pattern => pattern.test(secondLine));
+    }
+  
+    if (isGenericGreeting || secondLineGreeting) {
+      const detectedGreeting = isGenericGreeting ? firstLine : emailBodyLower.split('\n')[1].trim();
+      score += 10;
+      details.push(`Generic/impersonal greeting detected: "${detectedGreeting.substring(0, 30)}${detectedGreeting.length > 30 ? '...' : ''}"`);
+    }
+
+    // Enhanced sender domain analysis
+    const senderDomain = header.from.split('@')[1] || '';
+    const suspiciousDomainPatterns = [
+      /^[a-f0-9]+\.(com|net|org)$/i,  // Random-looking domains
+      /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/,  // IP address as domain
+      /^mail\d*\./i,  // mail1., mail2., etc.
+      /^smtp\d*\./i,  // smtp1., smtp2., etc.
+      /^no[-_]?reply\b/i,  // no-reply, no_reply, noreply
+      /^notification/i,
+      /^alert/i,
+      /^security/i,
+      /^update/i,
+      /^verify/i,
+      /^account/i,
+      /^service/i,
+      /^support/i,
+      /^billing/i,
+      /^payment/i,
+      /^corp[-_]?internal/i
+    ];
+  
+    // Check for suspicious domain patterns
+    const isSuspiciousDomain = suspiciousDomainPatterns.some(pattern => 
+      pattern.test(senderDomain) || 
+      senderDomain.split('.').some(part => part.length > 30)  // Long subdomains
+    );
+  
+    if (isSuspiciousDomain) {
+      score += 15;
+      details.push(`Suspicious sender domain pattern: ${senderDomain}`);
+    } else if (suspiciousDomains.some(domain => senderDomain.includes(domain))) {
+      score += 10;
+      details.push(`Suspicious sender domain: ${senderDomain}`);
     }
 
     // Check for mismatched sender domain vs. display name or reply-to.
@@ -238,48 +347,126 @@
       'Low risk – likely legitimate.';
     textDiv.appendChild(desc);
 
-    // Expandable details section
+    // Create expandable details sections
     const detailsBtn = document.createElement('button');
-    detailsBtn.textContent = 'Details';
+    detailsBtn.textContent = 'Analysis Details';
     detailsBtn.style.marginLeft = '8px';
     detailsBtn.style.cursor = 'pointer';
-    detailsBtn.style.padding = '4px 8px';
+    detailsBtn.style.padding = '4px 12px';
     detailsBtn.style.border = '1px solid #ccc';
     detailsBtn.style.borderRadius = '4px';
-    detailsBtn.style.background = '#f7f7f7';
+    detailsBtn.style.background = '#f0f7ff';
+    detailsBtn.style.fontWeight = '500';
 
     const markSafeBtn = document.createElement('button');
     markSafeBtn.textContent = 'Mark as Safe';
     markSafeBtn.style.marginLeft = '8px';
     markSafeBtn.style.cursor = 'pointer';
-    markSafeBtn.style.padding = '4px 8px';
+    markSafeBtn.style.padding = '4px 12px';
     markSafeBtn.style.border = '1px solid #ccc';
     markSafeBtn.style.borderRadius = '4px';
     markSafeBtn.style.background = '#f7f7f7';
+    markSafeBtn.style.fontWeight = '500';
 
-    // Collapsible area for heuristic details
+    // Create collapsible details panel
     const detailsPanel = document.createElement('div');
     detailsPanel.style.display = 'none';
-    detailsPanel.style.marginTop = '8px';
-    detailsPanel.style.padding = '8px';
-    detailsPanel.style.backgroundColor = '#fafafa';
-    detailsPanel.style.border = '1px solid #eee';
-    detailsPanel.style.borderRadius = '4px';
+    detailsPanel.style.marginTop = '12px';
+    detailsPanel.style.padding = '0';
     detailsPanel.style.fontSize = '13px';
     detailsPanel.style.whiteSpace = 'pre-line';
-    const detailsText = [];
+    detailsPanel.style.borderTop = '1px solid #e0e0e0';
+
+    // Helper function to create a section in the details panel
+    const createSection = (title, content, isAI = false) => {
+      const section = document.createElement('div');
+      section.style.padding = '12px';
+      section.style.borderBottom = '1px solid #f0f0f0';
+      section.style.backgroundColor = isAI ? '#f8f9ff' : '#ffffff';
+      
+      const titleEl = document.createElement('div');
+      titleEl.textContent = title;
+      titleEl.style.fontWeight = 'bold';
+      titleEl.style.marginBottom = '8px';
+      titleEl.style.color = isAI ? '#2c5282' : '#2d3748';
+      section.appendChild(titleEl);
+      
+      const contentEl = document.createElement('div');
+      contentEl.innerHTML = content;
+      contentEl.style.lineHeight = '1.5';
+      contentEl.style.color = '#4a5568';
+      section.appendChild(contentEl);
+      
+      return section;
+    };
+
+    // Process and separate heuristic and AI analysis
+    const heuristicDetails = [];
+    const aiAnalysis = [];
+    const suspiciousItems = [];
+
     if (details && details.length) {
-      detailsText.push('Heuristics findings:');
-      details.forEach(d => detailsText.push('• ' + d));
+      details.forEach(detail => {
+        if (detail.includes('AI Analysis:')) {
+          // Clean up AI analysis text
+          const aiText = detail.replace('AI Analysis:', '').trim();
+          // Format AI explanation with proper line breaks and bullet points
+          const formattedText = aiText
+            .replace(/\n\s*\n/g, '<br><br>') // Double newlines to paragraphs
+            .replace(/\n\s*•/g, '<br>•')     // Bullet points
+            .replace(/\n/g, ' ');             // Single newlines to spaces
+          aiAnalysis.push(formattedText);
+        } else if (detail.includes('Final Score:') || detail.includes('AI Status:')) {
+          // Skip these as they're handled separately
+        } else {
+          heuristicDetails.push(detail);
+        }
+      });
     }
-    if (suspiciousElements && suspiciousElements.length) {
-      detailsText.push('\nSuspicious elements detected:');
-      suspiciousElements.forEach(s => detailsText.push('• ' + s));
+
+    // Add heuristic findings section if available
+    if (heuristicDetails.length > 0) {
+      const formattedHeuristics = heuristicDetails
+        .map(d => d.replace(/^•\s*/, ''))
+        .map(d => `• ${d}`)
+        .join('<br>');
+      detailsPanel.appendChild(
+        createSection(
+          '🔍 Heuristic Analysis Findings',
+          formattedHeuristics
+        )
+      );
     }
-    detailsPanel.textContent = detailsText.join('\n');
+
+    // Add AI analysis section if available
+    if (aiAnalysis.length > 0) {
+      detailsPanel.appendChild(
+        createSection(
+          '🤖 AI Analysis Results',
+          aiAnalysis.join('<br><br>'),
+          true
+        )
+      );
+    }
+
+    // Add suspicious elements section if any
+    if (suspiciousElements && suspiciousElements.length > 0) {
+      const formattedSuspicious = suspiciousElements
+        .map(s => `• ${s}`)
+        .join('<br>');
+      detailsPanel.appendChild(
+        createSection(
+          '⚠️ Suspicious Elements Detected',
+          formattedSuspicious
+        )
+      );
+    }
 
     detailsBtn.addEventListener('click', () => {
-      detailsPanel.style.display = detailsPanel.style.display === 'none' ? 'block' : 'none';
+      const isHidden = detailsPanel.style.display === 'none';
+      detailsPanel.style.display = isHidden ? 'block' : 'none';
+      detailsBtn.textContent = isHidden ? 'Hide Details' : 'Analysis Details';
+      detailsBtn.style.background = isHidden ? '#e1f0ff' : '#f0f7ff';
     });
 
     markSafeBtn.addEventListener('click', () => {
@@ -460,51 +647,88 @@
 
     // Function to finish by inserting indicator once we have final score
     function finishWithScore(llmScore, explanation) {
-      const combined = combineScores(heuristics.score, llmScore);
+      // Normalize heuristic score to 0-100 scale for combination
+      const normalizedHeuristic = Math.min(100, Math.round((heuristics.score / 70) * 100));
+      const combinedScore = combineScores(normalizedHeuristic, llmScore || 0);
       
       // Prepare detailed analysis for display
       const analysisDetails = [...heuristics.details];
       
       // Add scoring breakdown
       analysisDetails.push(`\n--- Scoring Breakdown ---`);
+      analysisDetails.push(`Heuristic Score: ${normalizedHeuristic}/100`);
       
-      // Normalize heuristic score to 0-100 scale for display
-      const normalizedHeuristicScore = Math.round((heuristics.score / 70) * 100);
-      analysisDetails.push(`Heuristic Score: ${normalizedHeuristicScore}/100 (raw: ${heuristics.score}/70)`);
-      
+      // Add AI score if available
       if (typeof llmScore === 'number' && !isNaN(llmScore)) {
-        analysisDetails.push(`AI Analysis Score: ${llmScore}/100`);
-        analysisDetails.push(`Combined Final Score: ${combined}/100 (40% heuristics + 60% AI)`);
-        
-        // Add AI explanation if available
-        if (explanation && explanation.trim()) {
-          // Try to parse if it looks like JSON
-          let aiExplanation = explanation;
-          try {
-            if (explanation.trim().startsWith('{') && explanation.trim().endsWith('}')) {
-              const parsed = JSON.parse(explanation);
+        analysisDetails.push(`AI Confidence: ${Math.round(llmScore)}/100`);
+        analysisDetails.push(`Final Score: ${combinedScore}/100 (combined)`);
+      } else {
+        analysisDetails.push(`Final Score: ${combinedScore}/100 (heuristics only)`);
+      }
+      
+      // Process AI explanation if available
+      if (explanation && explanation.trim()) {
+        try {
+          let aiExplanation = '';
+          const trimmedExplanation = explanation.trim();
+          
+          // Try to parse as JSON if it looks like JSON
+          if (trimmedExplanation.startsWith('{') && trimmedExplanation.endsWith('}')) {
+            try {
+              const parsed = JSON.parse(trimmedExplanation);
+              
+              // Extract explanation or reasoning
               if (parsed.explanation) {
                 aiExplanation = parsed.explanation;
               } else if (parsed.reasoning) {
                 aiExplanation = parsed.reasoning;
               }
+              
+              // Format structured response if available
+              const formattedParts = [];
+              if (parsed.risk_factors && parsed.risk_factors.length) {
+                formattedParts.push(
+                  'Risk Factors:\n• ' + parsed.risk_factors.join('\n• ')
+                );
+              }
+              if (parsed.recommendations && parsed.recommendations.length) {
+                formattedParts.push(
+                  'Recommendations:\n• ' + parsed.recommendations.join('\n• ')
+                );
+              }
+              
+              if (formattedParts.length > 0) {
+                aiExplanation = formattedParts.join('\n\n');
+              }
+            } catch (e) {
+              console.warn('Error parsing AI explanation as JSON:', e);
+              aiExplanation = trimmedExplanation;
             }
-          } catch (e) {
-            // If parsing fails, use the original explanation
+          } else {
+            // If not JSON, clean up the text
+            aiExplanation = trimmedExplanation
+              .replace(/^AI Analysis:/i, '')
+              .replace(/^[\s\n]+|[\s\n]+$/g, ''); // Trim whitespace
           }
-          analysisDetails.push(`\nAI Analysis: ${aiExplanation}`);
+          
+          // Add the formatted AI analysis
+          if (aiExplanation) {
+            analysisDetails.push(`\nAI Analysis:\n${aiExplanation}`);
+          }
+        } catch (e) {
+          console.warn('Error processing AI explanation:', e);
+          // Fallback to showing the raw explanation
+          analysisDetails.push(`\nAI Analysis: ${explanation}`);
         }
-      } else {
-        analysisDetails.push(`AI Analysis: Not available`);
-        analysisDetails.push(`Final Score: ${combined}/100 (heuristics only)`);
-        
-        // If there's an error explanation, show it
-        if (explanation && explanation.includes('Error')) {
-          analysisDetails.push(`\nAI Status: ${explanation}`);
-        }
+      } else if (explanation && explanation.includes('Error')) {
+        // Show error status if no explanation but there's an error
+        analysisDetails.push(`\nAI Status: ${explanation}`);
+      } else if (llmScore === undefined || isNaN(llmScore)) {
+        // Only show "Not available" if AI was supposed to run but didn't
+        analysisDetails.push('AI Analysis: Not available');
       }
       
-      insertIndicator(messageContainer, combined, analysisDetails, heuristics.suspiciousElements);
+      insertIndicator(messageContainer, combinedScore, analysisDetails, heuristics.suspiciousElements);
       // Highlight suspicious links in the body
       highlightSuspiciousLinks(bodyEl, heuristics.suspiciousElements);
     }
