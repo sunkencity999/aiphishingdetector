@@ -174,11 +174,11 @@
   /**
    * Combine the heuristic score with the LLM score.  We weight the LLM
    * score slightly higher because it considers context and subtle
-   * patterns.  Both values are in the 0–100 range.
+   * patterns.  Heuristics are internally 0-70, LLM is 0-100.
    *
-   * @param {number} heuristics
-   * @param {number} llm
-   * @returns {number}
+   * @param {number} heuristics Heuristic score (0-70 range)
+   * @param {number} llm LLM score (0-100 range)
+   * @returns {number} Combined score (0-100 range)
    */
   function combineScores(heuristics, llm) {
     // If the LLM score is unavailable (NaN), return the heuristics score.
@@ -467,7 +467,10 @@
       
       // Add scoring breakdown
       analysisDetails.push(`\n--- Scoring Breakdown ---`);
-      analysisDetails.push(`Heuristic Score: ${heuristics.score}/70`);
+      
+      // Normalize heuristic score to 0-100 scale for display
+      const normalizedHeuristicScore = Math.round((heuristics.score / 70) * 100);
+      analysisDetails.push(`Heuristic Score: ${normalizedHeuristicScore}/100 (raw: ${heuristics.score}/70)`);
       
       if (typeof llmScore === 'number' && !isNaN(llmScore)) {
         analysisDetails.push(`AI Analysis Score: ${llmScore}/100`);
