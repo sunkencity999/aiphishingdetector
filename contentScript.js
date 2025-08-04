@@ -8,6 +8,29 @@
 // highlighting suspicious elements.
 
  (function () {
+  /**
+   * Logging utility for debugging purposes.
+   * Provides consistent logging format with timestamp and context.
+   * @param {string} level - Log level (debug, info, warn, error)
+   * @param {string} message - Log message
+   * @param {any} [data] - Optional data to log
+   */
+  function log(level, message, data) {
+    const timestamp = new Date().toISOString();
+    const prefix = `[PhishingExtension:${level.toUpperCase()}][${timestamp}]`;
+    
+    if (data !== undefined) {
+      console[level](`${prefix} ${message}`, data);
+    } else {
+      console[level](`${prefix} ${message}`);
+    }
+  }
+  
+  // Convenience logging functions
+  const logDebug = (message, data) => log('debug', message, data);
+  const logInfo = (message, data) => log('info', message, data);
+  const logWarn = (message, data) => log('warn', message, data);
+  const logError = (message, data) => log('error', message, data);
   const ANALYZED_FLAG = 'data-phishing-analyzed';
   const SAFE_FLAG = 'data-phishing-safe';
   // In-memory safe list of message IDs
@@ -18,6 +41,13 @@
    * Uses the data-message-id attribute if present.
    * @param {HTMLElement} container
    * @returns {string|null}
+   */
+  /**
+   * Extracts the unique message identifier from a Gmail message container.
+   * Uses the data-message-id attribute which is unique per message.
+   *
+   * @param {HTMLElement} container - The Gmail message container element
+   * @returns {string|null} The message ID or null if not found
    */
   function getMessageId(container) {
     return container.getAttribute('data-message-id') || null;
@@ -34,6 +64,29 @@
    * @param {object} header Parsed header information including authentication results.
    * @returns {{score: number, details: string[], suspiciousElements: string[]}}
    */
+  /**
+   * Computes a phishing likelihood score based on various heuristic checks.
+   * Analyzes email body and header information for common phishing indicators.
+   *
+   * Scoring system:
+   * - Keyword hits: +1-5 points each
+   * - Suspicious domains: +10-25 points
+   * - Sender-link domain mismatches: +5-25 points
+   * - Authentication failures: +12-18 points each
+   * - Generic greetings: +10 points
+   * - Excessive links: +5-15 points
+   * - Urgent language: +5-10 points
+   *
+   * @param {string} body - The email body text
+   * @param {Object} header - The email header information
+   * @param {string} header.from - The sender email address
+   * @param {string} header.subject - The email subject
+   * @param {Object} header.authentication - Authentication results
+   * @returns {Object} Results object containing score, details, and suspicious elements
+   * @returns {number} return.score - The computed phishing likelihood score
+   * @returns {string[]} return.details - Detailed explanations for the score
+   * @returns {string[]} return.suspiciousElements - Elements flagged as suspicious
+   */
   function computeHeuristics(body, header) {
     let score = 0;
     const details = [];
@@ -41,7 +94,23 @@
     
     // Initialize suspicious domains - will be populated via API in the future
     // Format: { domain: string, riskLevel: 'high'|'medium'|'low', lastUpdated: number }
-    const suspiciousDomains = [];
+    const suspiciousDomains = [
+      'paypal.com.security.login.com',
+      'amazon.account.security.com',
+      'microsoft-office.com',
+      'appleid.apple.com.security.check.com',
+      'irs.gov.tax.refund.com',
+      'bankofamerica.com.login.verify.com',
+      'wellsfargo.security.verify.com',
+      'chase.com.security.alert.com',
+      'facebook.password.reset.com',
+      'gmail.login.verify.com',
+      'outlook.login.verify.com',
+      'linkedin.security.verify.com',
+      'dropbox.login.verify.com',
+      'icloud.verify.account.com',
+      'netflix.billing.verify.com'
+    ];
 
     // Lowercase version for case‑insensitive matching
     const lowerBody = (body || '').toLowerCase();
@@ -201,7 +270,7 @@
           suspiciousElements.push(...mismatches);
         }
       } catch (err) {
-        // ignore
+        console.warn('Error checking sender domain mismatch:', err);
       }
     }
 
@@ -293,6 +362,14 @@
    * @param {number} llm LLM score (0-100 range)
    * @returns {number} Combined score (0-100 range)
    */
+  /**
+   * Combines heuristic and AI scores using weighted averaging.
+   * Heuristic score weight: 40%, AI score weight: 60%
+   *
+   * @param {number} heuristics - Normalized heuristic score (0-100)
+   * @param {number} llm - AI analysis score (0-100) or NaN if unavailable
+   * @returns {number} Combined phishing confidence score (0-100)
+   */
   function combineScores(heuristics, llm) {
     // If the LLM score is unavailable (NaN), return the heuristics score.
     if (typeof llm !== 'number' || isNaN(llm)) return heuristics;
@@ -308,6 +385,16 @@
    * @param {number} score Final combined phishing confidence score.
    * @param {Array<string>} details List of heuristic findings.
    * @param {Array<string>} suspiciousElements List of suspicious domains or strings.
+   */
+  /**
+   * Inserts a visual phishing indicator banner into the Gmail message container.
+   * The banner displays the phishing confidence score and detailed analysis.
+   * Color-coded based on risk level (green=low, yellow=medium, red=high).
+   *
+   * @param {HTMLElement} container - The Gmail message container element
+   * @param {number} score - The phishing confidence score (0-100)
+   * @param {string[]} details - Detailed analysis explanations
+   * @param {string[]} suspiciousElements - Elements flagged as suspicious
    */
   function insertIndicator(container, score, details, suspiciousElements) {
     // Avoid inserting multiple indicators
@@ -508,6 +595,23 @@
    * @param {HTMLElement} messageContainer
    * @returns {Promise<object>} Authentication results object
    */
+  /**
+   * Extracts email authentication results (DKIM, SPF, DMARC) from Gmail UI elements.
+   * Attempts to parse authentication information from various Gmail UI patterns.
+   * Uses multiple selector strategies and regex patterns for robust parsing.
+   *
+   * @param {HTMLElement} messageContainer - The Gmail message container element
+   * @returns {Promise<Object>} Authentication results object
+   * @returns {Object} return.dkim - DKIM authentication result
+   * @returns {string} return.dkim.status - DKIM status ('pass', 'fail', 'neutral', 'unknown')
+   * @returns {string} return.dkim.details - DKIM details if available
+   * @returns {Object} return.spf - SPF authentication result
+   * @returns {string} return.spf.status - SPF status ('pass', 'fail', 'neutral', 'unknown')
+   * @returns {string} return.spf.details - SPF details if available
+   * @returns {Object} return.dmarc - DMARC authentication result
+   * @returns {string} return.dmarc.status - DMARC status ('pass', 'fail', 'neutral', 'unknown')
+   * @returns {string} return.dmarc.details - DMARC details if available
+   */
   async function extractAuthenticationResults(messageContainer) {
     const authResults = {
       dkim: { status: 'unknown', details: '' },
@@ -516,82 +620,114 @@
     };
 
     try {
-      // Look for Gmail's "Show original" link or menu option
-      const showOriginalBtn = messageContainer.querySelector('[data-tooltip="Show original"]') ||
-                             messageContainer.querySelector('span[role="link"][aria-label*="original"]');
+      // Enhanced approach: try multiple selectors for authentication information
+      // Look for Gmail's authentication indicators in message details
+      const authElements = messageContainer.querySelectorAll('.aVW, .aVY, [data-tooltip*="authentication"], [aria-label*="authentication"]');
       
-      if (!showOriginalBtn) {
-        // Try alternative method: look for message menu
-        const menuBtn = messageContainer.querySelector('div[data-tooltip="More"]');
-        if (menuBtn) {
-          // Click menu to reveal "Show original" option
-          menuBtn.click();
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          // Look for "Show original" in menu items
-          const menuItems = document.querySelectorAll('div[role="menuitem"] span');
-          const showOriginal = Array.from(menuItems).find(item => 
-            item.textContent && item.textContent.toLowerCase().includes('show original')
-          );
-          if (showOriginal) {
-            showOriginal.click();
+      let authText = '';
+      authElements.forEach(el => {
+        const text = el.innerText || el.textContent || '';
+        authText += ' ' + text.toLowerCase();
+      });
+      
+      // If we found authentication text, parse it
+      if (authText) {
+        // Enhanced parsing with multiple regex patterns for different Gmail formats
+        
+        // Pattern 1: Standard authentication-results format
+        const dkimPatterns = [
+          /dkim=([a-z]+)(?:\s*\(([^)]+)\))?/i,
+          /dkim\s+([a-z]+)/i,
+          /domainkeys\s+([a-z]+)/i
+        ];
+        
+        const spfPatterns = [
+          /spf=([a-z]+)(?:\s*\(([^)]+)\))?/i,
+          /spf\s+([a-z]+)/i
+        ];
+        
+        const dmarcPatterns = [
+          /dmarc=([a-z]+)(?:\s*\(([^)]+)\))?/i,
+          /dmarc\s+([a-z]+)/i
+        ];
+        
+        // Try DKIM patterns
+        for (const pattern of dkimPatterns) {
+          const match = authText.match(pattern);
+          if (match) {
+            authResults.dkim.status = match[1].toLowerCase();
+            authResults.dkim.details = match[2] || '';
+            break;
+          }
+        }
+        
+        // Try SPF patterns
+        for (const pattern of spfPatterns) {
+          const match = authText.match(pattern);
+          if (match) {
+            authResults.spf.status = match[1].toLowerCase();
+            authResults.spf.details = match[2] || '';
+            break;
+          }
+        }
+        
+        // Try DMARC patterns
+        for (const pattern of dmarcPatterns) {
+          const match = authText.match(pattern);
+          if (match) {
+            authResults.dmarc.status = match[1].toLowerCase();
+            authResults.dmarc.details = match[2] || '';
+            break;
+          }
+        }
+        
+        // Fallback: look for general indicators
+        if (authResults.dkim.status === 'unknown' && authResults.spf.status === 'unknown' && authResults.dmarc.status === 'unknown') {
+          if (authText.includes('failed') || authText.includes('not authenticated')) {
+            // If we see failure indicators but no specific protocol, mark all as potentially failed
+            if (authText.includes('dkim')) authResults.dkim.status = 'fail';
+            if (authText.includes('spf')) authResults.spf.status = 'fail';
+            if (authText.includes('dmarc')) authResults.dmarc.status = 'fail';
+          } else if (authText.includes('pass') || authText.includes('verified') || authText.includes('signed')) {
+            // If we see success indicators but no specific protocol, mark as potentially passed
+            if (authText.includes('dkim')) authResults.dkim.status = 'pass';
+            if (authText.includes('spf')) authResults.spf.status = 'pass';
+            if (authText.includes('dmarc')) authResults.dmarc.status = 'pass';
           }
         }
       }
       
-      // If we can't access raw headers directly, try to extract from visible authentication info
-      // Gmail sometimes shows authentication results in the message details
-      const authInfo = messageContainer.querySelector('.aVW') || 
-                      messageContainer.querySelector('[data-legacy-thread-id]');
-      
-      if (authInfo) {
-        const authText = authInfo.innerText || authInfo.textContent || '';
+      // Additional fallback: check for security warnings in the message
+      const warningElements = messageContainer.querySelectorAll('.yO, .adv, .adn');
+      warningElements.forEach(el => {
+        const warningText = (el.innerText || el.textContent || '').toLowerCase();
         
-        // Parse DKIM results
-        const dkimMatch = authText.match(/dkim=([a-z]+)(?:\s+\(([^)]+)\))?/i);
-        if (dkimMatch) {
-          authResults.dkim.status = dkimMatch[1].toLowerCase();
-          authResults.dkim.details = dkimMatch[2] || '';
+        // Look for specific warning indicators
+        if (warningText.includes('suspicious') || warningText.includes('phishing') || 
+            warningText.includes('fraud') || warningText.includes('scam')) {
+          // If there are security warnings, assume authentication likely failed
+          if (authResults.dkim.status === 'unknown') authResults.dkim.status = 'fail';
+          if (authResults.spf.status === 'unknown') authResults.spf.status = 'fail';
+          if (authResults.dmarc.status === 'unknown') authResults.dmarc.status = 'fail';
         }
-        
-        // Parse SPF results
-        const spfMatch = authText.match(/spf=([a-z]+)(?:\s+\(([^)]+)\))?/i);
-        if (spfMatch) {
-          authResults.spf.status = spfMatch[1].toLowerCase();
-          authResults.spf.details = spfMatch[2] || '';
-        }
-        
-        // Parse DMARC results
-        const dmarcMatch = authText.match(/dmarc=([a-z]+)(?:\s+\(([^)]+)\))?/i);
-        if (dmarcMatch) {
-          authResults.dmarc.status = dmarcMatch[1].toLowerCase();
-          authResults.dmarc.details = dmarcMatch[2] || '';
-        }
-      }
-      
-      // Alternative: try to extract from Gmail's security indicators
-      const securityInfo = messageContainer.querySelector('.aVW, .aVY');
-      if (securityInfo) {
-        const secText = securityInfo.innerText.toLowerCase();
-        
-        // Look for authentication failure indicators
-        if (secText.includes('not authenticated') || secText.includes('failed authentication')) {
-          authResults.dkim.status = 'fail';
-          authResults.spf.status = 'fail';
-        }
-        
-        if (secText.includes('signed by') || secText.includes('verified')) {
-          authResults.dkim.status = 'pass';
-        }
-      }
+      });
       
     } catch (err) {
       console.warn('Error extracting authentication results:', err);
+      // Return default unknown results rather than failing
     }
     
     return authResults;
   }
 
+  /**
+   * Analyse a specific email container element if it hasn't been
+   * processed yet.  Extracts the body and header, computes the
+   * heuristic score and requests AI analysis if configured.  Finally
+   * inserts the visual indicator.
+   *
+   * @param {HTMLElement} messageContainer
+   */
   /**
    * Analyse a specific email container element if it hasn't been
    * processed yet.  Extracts the body and header, computes the
@@ -606,6 +742,13 @@
         messageContainer.getAttribute(SAFE_FLAG) === 'true') {
       return;
     }
+    
+    // Log the start of message analysis
+    logDebug('Starting analysis of message container', { 
+      messageId: getMessageId(messageContainer),
+      containerId: messageContainer.id,
+      containerClass: messageContainer.className
+    });
     // Check persisted safe list by message ID
     const messageId = getMessageId(messageContainer);
     if (messageId && safeList.includes(messageId)) {
@@ -618,9 +761,21 @@
     // Extract body text from Gmail.  We query for the `.a3s` element which
     // holds the rendered message.  Use innerText to extract plain text.
     const bodyEl = messageContainer.querySelector('div.a3s');
-    if (!bodyEl) return;
+    if (!bodyEl) {
+      logDebug('No body element found in message container');
+      return;
+    }
     const emailBody = bodyEl.innerText || bodyEl.textContent || '';
-    if (!emailBody.trim()) return;
+    if (!emailBody.trim()) {
+      logDebug('Email body is empty');
+      return;
+    }
+    
+    // Log basic email information for debugging
+    logDebug('Extracted email body', { 
+      bodyLength: emailBody.length,
+      first100Chars: emailBody.substring(0, 100)
+    });
 
     // Extract header information: from, to, subject, and authentication results
     const header = {};
@@ -628,43 +783,68 @@
       const fromEl = messageContainer.querySelector('span.gD');
       if (fromEl) {
         header.from = fromEl.getAttribute('email') || fromEl.innerText;
+        logDebug('Extracted sender information', { from: header.from });
       }
       const toEl = messageContainer.querySelector('span.g2');
       if (toEl) {
         header.to = toEl.getAttribute('email') || toEl.innerText;
+        logDebug('Extracted recipient information', { to: header.to });
       }
-      const subjectEl = document.querySelector('h2.hP'); // subject is outside message container
+      const subjectEl = messageContainer.querySelector('h2');
       if (subjectEl) {
         header.subject = subjectEl.innerText;
+        logDebug('Extracted subject', { subject: header.subject.substring(0, 100) });
       }
       
       // Extract authentication results from raw headers
+      logDebug('Starting authentication results extraction');
       const authResults = await extractAuthenticationResults(messageContainer);
       header.authentication = authResults;
+      logDebug('Authentication results extracted', { 
+        dkim: authResults.dkim.status,
+        spf: authResults.spf.status,
+        dmarc: authResults.dmarc.status
+      });
     } catch (err) {
       // header extraction failure is non‑fatal
       console.warn('Header extraction error:', err);
     }
 
     // Compute heuristic score
+    logDebug('Computing heuristic score');
     const heuristics = computeHeuristics(emailBody, header);
-
+    logDebug('Heuristic analysis completed', { 
+      score: heuristics.score,
+      detailsCount: heuristics.details.length
+    });
+    
     // Function to finish by inserting indicator once we have final score
     function finishWithScore(llmScore, explanation) {
+      logDebug('Finishing analysis with score', { llmScore, explanation });
+      
       // Normalize heuristic score to 0-100 scale for combination
       const normalizedHeuristic = Math.min(100, Math.round((heuristics.score / 70) * 100));
       const combinedScore = combineScores(normalizedHeuristic, llmScore || 0);
+      
+      logDebug('Score combination results', { 
+        heuristicScore: heuristics.score,
+        normalizedHeuristic,
+        llmScore,
+        combinedScore
+      });
       
       // Prepare detailed analysis for display
       const analysisDetails = [...heuristics.details];
       
       // Add scoring breakdown
-      analysisDetails.push(`\n--- Scoring Breakdown ---`);
-      analysisDetails.push(`Heuristic Score: ${normalizedHeuristic}/100`);
+      analysisDetails.push(`Heuristic score: ${heuristics.score} (normalized: ${normalizedHeuristic})`);
+      if (typeof llmScore === 'number' && !isNaN(llmScore)) {
+        analysisDetails.push(`AI score: ${llmScore}`);
+      }
+      analysisDetails.push(`Combined score: ${combinedScore}`);
       
       // Add AI score if available
       if (typeof llmScore === 'number' && !isNaN(llmScore)) {
-        analysisDetails.push(`AI Confidence: ${Math.round(llmScore)}/100`);
         analysisDetails.push(`Final Score: ${combinedScore}/100 (combined)`);
       } else {
         analysisDetails.push(`Final Score: ${combinedScore}/100 (heuristics only)`);
@@ -732,9 +912,14 @@
         analysisDetails.push('AI Analysis: Not available');
       }
       
+      logDebug('Inserting phishing indicator', { 
+        combinedScore, 
+        detailsCount: analysisDetails.length,
+        suspiciousElementsCount: heuristics.suspiciousElements.length 
+      });
+      
       insertIndicator(messageContainer, combinedScore, analysisDetails, heuristics.suspiciousElements);
-      // Highlight suspicious links in the body
-      highlightSuspiciousLinks(bodyEl, heuristics.suspiciousElements);
+      logDebug('Phishing indicator inserted successfully');
     }
 
     // Retrieve AI settings and call AI if enabled and configured
@@ -744,7 +929,7 @@
       const enableAI = cfg.enableAI !== false; // Default to true if not set
       
       if (!enableAI) {
-        console.log('AI analysis disabled by user setting');
+        logInfo('AI analysis disabled by user setting');
         finishWithScore(NaN, 'AI analysis disabled in settings');
         return;
       }
@@ -754,26 +939,26 @@
         return;
       }
       // Send message to background to perform AI analysis
-      console.log('Requesting AI analysis for email...');
+      logInfo('Requesting AI analysis for email...', { emailSubject: header.subject });
       chrome.runtime.sendMessage({
         action: 'analyzeEmail',
         body: emailBody,
         header
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.error('AI analysis error:', chrome.runtime.lastError);
+          logError('AI analysis error', chrome.runtime.lastError);
           finishWithScore(NaN, `AI Error: ${chrome.runtime.lastError.message}`);
           return;
         }
-        console.log('AI analysis response:', response);
+        logDebug('AI analysis response received', response);
         if (response && response.error) {
-          console.warn('AI analysis failed:', response.error);
+          logWarn('AI analysis failed', response.error);
           finishWithScore(NaN, `AI Error: ${response.error}`);
         } else if (response && typeof response.score === 'number') {
-          console.log('AI analysis successful, score:', response.score);
+          logInfo('AI analysis successful', { score: response.score });
           finishWithScore(response.score, response.explanation || null);
         } else {
-          console.warn('Invalid AI response format:', response);
+          logWarn('Invalid AI response format', response);
           finishWithScore(NaN, 'AI Error: Invalid response format');
         }
       });
