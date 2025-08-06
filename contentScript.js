@@ -477,19 +477,8 @@
   }
 
   /**
-   * Create and insert a banner into the Gmail UI to display the phishing
-   * score and related details.  The banner is inserted above the email
-   * header area, near where Gmail displays the sender and subject.
-   *
-   * @param {HTMLElement} container A DOM element associated with the email being analysed.
-   * @param {number} score Final combined phishing confidence score.
-   * @param {Array<string>} details List of heuristic findings.
-   * @param {Array<string>} suspiciousElements List of suspicious domains or strings.
-   */
-  /**
-   * Inserts a visual phishing indicator banner into the Gmail message container.
-   * The banner displays the phishing confidence score and detailed analysis.
-   * Color-coded based on risk level (green=low, yellow=medium, red=high).
+   * Creates and inserts a phishing indicator icon into Gmail's action toolbar.
+   * The icon is color-coded based on risk level and shows a popup with details when clicked.
    *
    * @param {HTMLElement} container - The Gmail message container element
    * @param {number} score - The phishing confidence score (0-100)
@@ -498,170 +487,256 @@
    */
   function insertIndicator(container, score, details, suspiciousElements) {
     // Avoid inserting multiple indicators
-    if (container.querySelector('.phishing-indicator')) return;
+    if (container.querySelector('.phishing-security-icon')) return;
 
-    const banner = document.createElement('div');
-    banner.className = 'phishing-indicator';
-    banner.style.display = 'flex';
-    banner.style.alignItems = 'center';
-    banner.style.padding = '8px';
-    banner.style.margin = '8px 0';
-    banner.style.borderRadius = '6px';
-    banner.style.fontFamily = 'Arial, sans-serif';
-    banner.style.fontSize = '14px';
-
-    // Determine colour based on score
-    let bgColor;
-    if (score >= 80) {
-      bgColor = '#ffebee'; // light red
-    } else if (score >= 40) {
-      bgColor = '#fffde7'; // light yellow
-    } else {
-      bgColor = '#e8f5e9'; // light green
+    // Find Gmail's action toolbar (where reply, forward, etc. buttons are)
+    const actionToolbar = findActionToolbar(container);
+    if (!actionToolbar) {
+      logWarn('Could not find Gmail action toolbar, falling back to container insertion');
+      return;
     }
-    banner.style.backgroundColor = bgColor;
 
-    // Text container
-    const textDiv = document.createElement('div');
-    textDiv.style.flex = '1';
-    textDiv.style.display = 'flex';
-    textDiv.style.flexDirection = 'column';
+    // Create the phishing security icon
+    const icon = createSecurityIcon(score);
+    const popup = createAnalysisPopup(score, details, suspiciousElements, container);
+    
+    // Insert icon into toolbar
+    insertIconIntoToolbar(actionToolbar, icon, popup);
+  }
+
+  /**
+   * Finds Gmail's action toolbar within a message container.
+   * Tries multiple selectors to handle different Gmail layouts.
+   *
+   * @param {HTMLElement} container - The Gmail message container
+   * @returns {HTMLElement|null} The action toolbar element or null if not found
+   */
+  function findActionToolbar(container) {
+    // Common Gmail action toolbar selectors
+    const selectors = [
+      '[data-action-data]', // Gmail action buttons container
+      '[role="toolbar"]', // ARIA toolbar role
+      '.aAP', // Gmail action toolbar class (may change)
+      '.aAQ', // Alternative Gmail toolbar class
+      '.aAR', // Another alternative
+      '.amn', // Message actions container
+      '.ams', // Message toolbar
+      '.T-I-J3', // Reply button container parent
+    ];
+
+    for (const selector of selectors) {
+      const toolbar = container.querySelector(selector);
+      if (toolbar) {
+        // Verify this looks like an action toolbar by checking for common buttons
+        const hasReplyButton = toolbar.querySelector('[data-tooltip*="Reply"], [aria-label*="Reply"], .T-I-J3');
+        const hasMoreButton = toolbar.querySelector('[data-tooltip*="More"], [aria-label*="More"], .T-I-ax7');
+        
+        if (hasReplyButton || hasMoreButton) {
+          logDebug('Found Gmail action toolbar', { selector, toolbar });
+          return toolbar;
+        }
+      }
+    }
+
+    // Fallback: look for any element containing reply/forward buttons
+    const replyButton = container.querySelector('.T-I-J3, [data-tooltip*="Reply"], [aria-label*="Reply"]');
+    if (replyButton) {
+      const toolbar = replyButton.closest('[role="toolbar"], .aAP, .aAQ, .aAR, .amn, .ams') || replyButton.parentElement;
+      if (toolbar) {
+        logDebug('Found toolbar via reply button', { toolbar });
+        return toolbar;
+      }
+    }
+
+    logWarn('Could not locate Gmail action toolbar');
+    return null;
+  }
+
+  /**
+   * Creates the security icon element with appropriate styling and color.
+   *
+   * @param {number} score - The phishing confidence score (0-100)
+   * @returns {HTMLElement} The created icon element
+   */
+  function createSecurityIcon(score) {
+    const icon = document.createElement('div');
+    icon.className = 'phishing-security-icon';
+    icon.setAttribute('data-phishing-score', score);
+    
+    // Determine icon color based on risk level
+    let iconColor, tooltip;
+    if (score >= 80) {
+      iconColor = '#d32f2f'; // Red for high risk
+      tooltip = `High phishing risk (${score}/100)`;
+    } else if (score >= 40) {
+      iconColor = '#f57c00'; // Orange/yellow for medium risk
+      tooltip = `Medium phishing risk (${score}/100)`;
+    } else {
+      iconColor = '#388e3c'; // Green for low risk
+      tooltip = `Low phishing risk (${score}/100)`;
+    }
+
+    // Style the icon to match Gmail's design
+    icon.style.cssText = `
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      margin: 0;
+      cursor: pointer;
+      border-radius: 50%;
+      background-color: ${iconColor};
+      position: relative;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    `;
+
+    // Add shield icon using CSS
+    icon.innerHTML = `
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+        <path d="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,7C13.4,7 14.8,8.6 14.8,10.5V11.5C15.4,11.5 16,12.4 16,13V16C16,16.6 15.6,17 15,17H9C8.4,17 8,16.6 8,16V13C8,12.4 8.4,11.5 9,11.5V10.5C9,8.6 10.6,7 12,7M12,8.2C11.2,8.2 10.2,8.7 10.2,10.5V11.5H13.8V10.5C13.8,8.7 12.8,8.2 12,8.2Z"/>
+      </svg>
+    `;
+
+    // Add hover effects
+    icon.addEventListener('mouseenter', () => {
+      icon.style.transform = 'scale(1.1)';
+      icon.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
+    });
+
+    icon.addEventListener('mouseleave', () => {
+      icon.style.transform = 'scale(1)';
+      icon.style.boxShadow = '0 1px 3px rgba(0,0,0,0.2)';
+    });
+
+    // Add tooltip
+    icon.title = tooltip;
+
+    return icon;
+  }
+
+  /**
+   * Creates the analysis popup that appears when the icon is clicked.
+   *
+   * @param {number} score - The phishing confidence score
+   * @param {string[]} details - Analysis details
+   * @param {string[]} suspiciousElements - Suspicious elements found
+   * @param {HTMLElement} container - The message container for context
+   * @returns {HTMLElement} The popup element
+   */
+  function createAnalysisPopup(score, details, suspiciousElements, container) {
+    const popup = document.createElement('div');
+    popup.className = 'phishing-analysis-popup';
+    popup.style.cssText = `
+      position: absolute;
+      top: 100%;
+      right: 0;
+      width: 320px;
+      max-height: 400px;
+      background: white;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      z-index: 10000;
+      display: none;
+      overflow: hidden;
+      font-family: 'Google Sans', Roboto, Arial, sans-serif;
+      font-size: 14px;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      box-sizing: border-box;
+    `;
+
+    // Create popup header
+    const header = document.createElement('div');
+    header.style.cssText = `
+      padding: 16px;
+      border-bottom: 1px solid #e8eaed;
+      background: #f8f9fa;
+    `;
 
     const title = document.createElement('div');
-    title.style.fontWeight = 'bold';
-    title.textContent = `Phishing Score: ${score}/100`;
-    textDiv.appendChild(title);
-    const desc = document.createElement('div');
-    desc.textContent = score >= 80 ?
-      'High risk of phishing – proceed with caution.' :
-      score >= 40 ? 'Moderate risk – review carefully.' :
-      'Low risk – likely legitimate.';
-    textDiv.appendChild(desc);
+    title.style.cssText = `
+      font-weight: 500;
+      font-size: 16px;
+      color: #202124;
+      margin-bottom: 4px;
+    `;
+    title.textContent = `Security Analysis`;
 
-    // Create expandable details sections
-    const detailsBtn = document.createElement('button');
-    detailsBtn.textContent = 'Analysis Details';
-    detailsBtn.style.marginLeft = '8px';
-    detailsBtn.style.cursor = 'pointer';
-    detailsBtn.style.padding = '4px 12px';
-    detailsBtn.style.border = '1px solid #ccc';
-    detailsBtn.style.borderRadius = '4px';
-    detailsBtn.style.background = '#f0f7ff';
-    detailsBtn.style.fontWeight = '500';
+    const scoreText = document.createElement('div');
+    scoreText.style.cssText = `
+      font-size: 14px;
+      color: #5f6368;
+    `;
+    
+    let riskLevel, riskColor;
+    if (score >= 80) {
+      riskLevel = 'High Risk';
+      riskColor = '#d32f2f';
+    } else if (score >= 40) {
+      riskLevel = 'Medium Risk';
+      riskColor = '#f57c00';
+    } else {
+      riskLevel = 'Low Risk';
+      riskColor = '#388e3c';
+    }
+    
+    scoreText.innerHTML = `Score: <span style="color: ${riskColor}; font-weight: 500;">${score}/100 (${riskLevel})</span>`;
+
+    header.appendChild(title);
+    header.appendChild(scoreText);
+
+    // Create popup content
+    const content = document.createElement('div');
+    content.style.cssText = `
+      max-height: 280px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 0;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    `;
+
+    // Add analysis sections
+    const sections = createAnalysisSections(details, suspiciousElements);
+    sections.forEach(section => content.appendChild(section));
+
+    // Create footer with Mark as Safe button
+    const footer = document.createElement('div');
+    footer.style.cssText = `
+      padding: 12px 16px;
+      border-top: 1px solid #e8eaed;
+      background: #f8f9fa;
+      display: flex;
+      justify-content: flex-end;
+    `;
 
     const markSafeBtn = document.createElement('button');
     markSafeBtn.textContent = 'Mark as Safe';
-    markSafeBtn.style.marginLeft = '8px';
-    markSafeBtn.style.cursor = 'pointer';
-    markSafeBtn.style.padding = '4px 12px';
-    markSafeBtn.style.border = '1px solid #ccc';
-    markSafeBtn.style.borderRadius = '4px';
-    markSafeBtn.style.background = '#f7f7f7';
-    markSafeBtn.style.fontWeight = '500';
+    markSafeBtn.style.cssText = `
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background-color 0.2s;
+    `;
 
-    // Create collapsible details panel
-    const detailsPanel = document.createElement('div');
-    detailsPanel.style.display = 'none';
-    detailsPanel.style.marginTop = '12px';
-    detailsPanel.style.padding = '0';
-    detailsPanel.style.fontSize = '13px';
-    detailsPanel.style.whiteSpace = 'pre-line';
-    detailsPanel.style.borderTop = '1px solid #e0e0e0';
+    markSafeBtn.addEventListener('mouseenter', () => {
+      markSafeBtn.style.backgroundColor = '#1557b0';
+    });
 
-    // Helper function to create a section in the details panel
-    const createSection = (title, content, isAI = false) => {
-      const section = document.createElement('div');
-      section.style.padding = '12px';
-      section.style.borderBottom = '1px solid #f0f0f0';
-      section.style.backgroundColor = isAI ? '#f8f9ff' : '#ffffff';
-      
-      const titleEl = document.createElement('div');
-      titleEl.textContent = title;
-      titleEl.style.fontWeight = 'bold';
-      titleEl.style.marginBottom = '8px';
-      titleEl.style.color = isAI ? '#2c5282' : '#2d3748';
-      section.appendChild(titleEl);
-      
-      const contentEl = document.createElement('div');
-      contentEl.innerHTML = content;
-      contentEl.style.lineHeight = '1.5';
-      contentEl.style.color = '#4a5568';
-      section.appendChild(contentEl);
-      
-      return section;
-    };
-
-    // Process and separate heuristic and AI analysis
-    const heuristicDetails = [];
-    const aiAnalysis = [];
-    const suspiciousItems = [];
-
-    if (details && details.length) {
-      details.forEach(detail => {
-        if (detail.includes('AI Analysis:')) {
-          // Clean up AI analysis text
-          const aiText = detail.replace('AI Analysis:', '').trim();
-          // Format AI explanation with proper line breaks and bullet points
-          const formattedText = aiText
-            .replace(/\n\s*\n/g, '<br><br>') // Double newlines to paragraphs
-            .replace(/\n\s*•/g, '<br>•')     // Bullet points
-            .replace(/\n/g, ' ');             // Single newlines to spaces
-          aiAnalysis.push(formattedText);
-        } else if (detail.includes('Final Score:') || detail.includes('AI Status:')) {
-          // Skip these as they're handled separately
-        } else {
-          heuristicDetails.push(detail);
-        }
-      });
-    }
-
-    // Add heuristic findings section if available
-    if (heuristicDetails.length > 0) {
-      const formattedHeuristics = heuristicDetails
-        .map(d => d.replace(/^•\s*/, ''))
-        .map(d => `• ${d}`)
-        .join('<br>');
-      detailsPanel.appendChild(
-        createSection(
-          '🔍 Heuristic Analysis Findings',
-          formattedHeuristics
-        )
-      );
-    }
-
-    // Add AI analysis section if available
-    if (aiAnalysis.length > 0) {
-      detailsPanel.appendChild(
-        createSection(
-          '🤖 AI Analysis Results',
-          aiAnalysis.join('<br><br>'),
-          true
-        )
-      );
-    }
-
-    // Add suspicious elements section if any
-    if (suspiciousElements && suspiciousElements.length > 0) {
-      const formattedSuspicious = suspiciousElements
-        .map(s => `• ${s}`)
-        .join('<br>');
-      detailsPanel.appendChild(
-        createSection(
-          '⚠️ Suspicious Elements Detected',
-          formattedSuspicious
-        )
-      );
-    }
-
-    detailsBtn.addEventListener('click', () => {
-      const isHidden = detailsPanel.style.display === 'none';
-      detailsPanel.style.display = isHidden ? 'block' : 'none';
-      detailsBtn.textContent = isHidden ? 'Hide Details' : 'Analysis Details';
-      detailsBtn.style.background = isHidden ? '#e1f0ff' : '#f0f7ff';
+    markSafeBtn.addEventListener('mouseleave', () => {
+      markSafeBtn.style.backgroundColor = '#1a73e8';
     });
 
     markSafeBtn.addEventListener('click', () => {
-      // Mark this message as safe: use its data-message-id for persistence.
+      // Mark message as safe
       const msgId = getMessageId(container);
       container.setAttribute(SAFE_FLAG, 'true');
       if (msgId) {
@@ -670,21 +745,240 @@
           chrome.storage.local.set({ safeList });
         }
       }
-      // Remove banner and skip future analysis
-      banner.remove();
+      
+      // Remove the icon and popup
+      const icon = container.querySelector('.phishing-security-icon');
+      if (icon && icon.parentElement) {
+        icon.parentElement.removeChild(icon);
+      }
+      popup.style.display = 'none';
+      
+      logInfo('Message marked as safe', { messageId: msgId });
     });
 
-    const buttonsDiv = document.createElement('div');
-    buttonsDiv.style.display = 'flex';
-    buttonsDiv.appendChild(detailsBtn);
-    buttonsDiv.appendChild(markSafeBtn);
+    footer.appendChild(markSafeBtn);
 
-    banner.appendChild(textDiv);
-    banner.appendChild(buttonsDiv);
-    banner.appendChild(detailsPanel);
+    popup.appendChild(header);
+    popup.appendChild(content);
+    popup.appendChild(footer);
 
-    // Insert banner at the top of the container
-    container.insertBefore(banner, container.firstChild);
+    return popup;
+  }
+
+  /**
+   * Creates analysis sections for the popup content.
+   *
+   * @param {string[]} details - Analysis details
+   * @param {string[]} suspiciousElements - Suspicious elements
+   * @returns {HTMLElement[]} Array of section elements
+   */
+  function createAnalysisSections(details, suspiciousElements) {
+    const sections = [];
+
+    // Helper function to create a section
+    const createSection = (title, content, icon = '') => {
+      const section = document.createElement('div');
+      section.style.cssText = `
+        padding: 12px 16px;
+        border-bottom: 1px solid #f1f3f4;
+      `;
+      
+      const titleEl = document.createElement('div');
+      titleEl.style.cssText = `
+        font-weight: 500;
+        color: #202124;
+        margin-bottom: 8px;
+        font-size: 14px;
+      `;
+      titleEl.textContent = `${icon} ${title}`;
+      
+      const contentEl = document.createElement('div');
+      contentEl.style.cssText = `
+        color: #5f6368;
+        font-size: 13px;
+        line-height: 1.4;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        white-space: pre-wrap;
+        max-width: 100%;
+        box-sizing: border-box;
+      `;
+      contentEl.innerHTML = content;
+      
+      section.appendChild(titleEl);
+      section.appendChild(contentEl);
+      
+      return section;
+    };
+
+    // Process details into heuristic and AI analysis
+    const heuristicDetails = [];
+    const aiAnalysis = [];
+
+    if (details && details.length) {
+      details.forEach(detail => {
+        if (detail.includes('AI Analysis:')) {
+          const aiText = detail.replace('AI Analysis:', '').trim();
+          const formattedText = aiText
+            .replace(/\n\s*\n/g, '<br><br>')
+            .replace(/\n\s*•/g, '<br>•')
+            .replace(/\n/g, ' ');
+          aiAnalysis.push(formattedText);
+        } else if (!detail.includes('Final Score:') && !detail.includes('AI Status:')) {
+          heuristicDetails.push(detail);
+        }
+      });
+    }
+
+    // Add heuristic findings
+    if (heuristicDetails.length > 0) {
+      const formattedHeuristics = heuristicDetails
+        .map(d => d.replace(/^•\s*/, ''))
+        .map(d => `• ${d}`)
+        .join('<br>');
+      sections.push(createSection('Heuristic Analysis', formattedHeuristics, '🔍'));
+    }
+
+    // Add AI analysis
+    if (aiAnalysis.length > 0) {
+      sections.push(createSection('AI Analysis', aiAnalysis.join('<br><br>'), '🤖'));
+    }
+
+    // Add suspicious elements
+    if (suspiciousElements && suspiciousElements.length > 0) {
+      const formattedSuspicious = suspiciousElements
+        .map(s => `• ${s}`)
+        .join('<br>');
+      sections.push(createSection('Suspicious Elements', formattedSuspicious, '⚠️'));
+    }
+
+    return sections;
+  }
+
+  /**
+   * Inserts the security icon into Gmail's action toolbar.
+   *
+   * @param {HTMLElement} toolbar - The Gmail action toolbar
+   * @param {HTMLElement} icon - The security icon element
+   * @param {HTMLElement} popup - The analysis popup element
+   */
+  function insertIconIntoToolbar(toolbar, icon, popup) {
+    // Create a container for the icon and popup
+    const container = document.createElement('div');
+    container.style.cssText = `
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      margin: 0 -8px 0 4px;
+    `;
+    
+    container.appendChild(icon);
+    container.appendChild(popup);
+
+    // Find the star icon and reply button for precise positioning
+    const starButton = toolbar.querySelector('[data-tooltip*="Star"], [aria-label*="Star"], .T-I-J3');
+    const replyButton = toolbar.querySelector('[data-tooltip*="Reply"], [aria-label*="Reply"], .T-I-J3');
+    
+    // Look for the star icon in the message container if not found in toolbar
+    if (!starButton) {
+      const messageContainer = toolbar.closest('[data-message-id]');
+      if (messageContainer) {
+        const starIcon = messageContainer.querySelector('[data-tooltip*="Star"], [aria-label*="Star"], .T-I-atl');
+        if (starIcon && replyButton) {
+          // Position between star and reply by finding their common parent
+          const commonParent = findCommonParent(starIcon, replyButton);
+          if (commonParent) {
+            // Insert right after the star icon's container
+            const starContainer = starIcon.closest('.T-I, .ar9') || starIcon.parentElement;
+            if (starContainer && starContainer.nextSibling) {
+              commonParent.insertBefore(container, starContainer.nextSibling);
+              logDebug('Inserted security icon between star and reply icons');
+              return;
+            }
+          }
+        }
+      }
+    }
+    
+    // Fallback positioning logic
+    const moreButton = toolbar.querySelector('[data-tooltip*="More"], [aria-label*="More"], .T-I-ax7');
+    
+    if (replyButton) {
+      // Insert before the reply button for better positioning
+      toolbar.insertBefore(container, replyButton);
+      logDebug('Inserted security icon before Reply button');
+    } else if (moreButton) {
+      // Insert before the "More" button
+      toolbar.insertBefore(container, moreButton);
+      logDebug('Inserted security icon before More button');
+    } else {
+      // Fallback: append to the end of the toolbar
+      toolbar.appendChild(container);
+      logDebug('Inserted security icon at end of toolbar');
+    }
+
+    // Add click handler to show/hide popup
+    let isPopupVisible = false;
+    icon.addEventListener('click', (e) => {
+      e.stopPropagation();
+      isPopupVisible = !isPopupVisible;
+      popup.style.display = isPopupVisible ? 'block' : 'none';
+      
+      if (isPopupVisible) {
+        // Position popup correctly
+        const iconRect = icon.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        
+        // Adjust popup position if it would go off-screen
+        if (iconRect.right + 320 > viewportWidth) {
+          popup.style.right = '0';
+          popup.style.left = 'auto';
+        } else {
+          popup.style.left = '0';
+          popup.style.right = 'auto';
+        }
+      }
+    });
+
+    // Close popup when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!container.contains(e.target) && isPopupVisible) {
+        popup.style.display = 'none';
+        isPopupVisible = false;
+      }
+    });
+
+    logInfo('Security icon inserted into Gmail toolbar');
+  }
+
+  /**
+   * Finds the common parent element of two DOM elements.
+   *
+   * @param {HTMLElement} element1 - First element
+   * @param {HTMLElement} element2 - Second element
+   * @returns {HTMLElement|null} Common parent element or null if not found
+   */
+  function findCommonParent(element1, element2) {
+    if (!element1 || !element2) return null;
+    
+    // Get all parents of element1
+    const parents1 = [];
+    let current = element1;
+    while (current && current.parentElement) {
+      parents1.push(current.parentElement);
+      current = current.parentElement;
+    }
+    
+    // Find first common parent with element2
+    current = element2;
+    while (current && current.parentElement) {
+      if (parents1.includes(current.parentElement)) {
+        return current.parentElement;
+      }
+      current = current.parentElement;
+    }
+    
+    return null;
   }
 
   /**
@@ -701,7 +995,7 @@
    * Uses multiple selector strategies and regex patterns for robust parsing.
    *
    * @param {HTMLElement} messageContainer - The Gmail message container element
-   * @returns {Promise<Object>} Authentication results object
+   * @returns {Object} Authentication results object
    * @returns {Object} return.dkim - DKIM authentication result
    * @returns {string} return.dkim.status - DKIM status ('pass', 'fail', 'neutral', 'unknown')
    * @returns {string} return.dkim.details - DKIM details if available
@@ -712,7 +1006,7 @@
    * @returns {string} return.dmarc.status - DMARC status ('pass', 'fail', 'neutral', 'unknown')
    * @returns {string} return.dmarc.details - DMARC details if available
    */
-  async function extractAuthenticationResults(messageContainer) {
+  function extractAuthenticationResults(messageContainer) {
     const authResults = {
       dkim: { status: 'unknown', details: '' },
       spf: { status: 'unknown', details: '' },

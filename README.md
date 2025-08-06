@@ -1,4 +1,4 @@
-# Email Phishing Confidence Extension
+# Joby Security Extension
 
 A Chrome extension that analyzes email headers and bodies directly within your browser to provide a phishing confidence score and highlights suspicious elements. Uses advanced heuristics and optional AI integration via OpenAI-compatible APIs (including local FastAPI endpoints) to improve accuracy.
 
