@@ -1,18 +1,17 @@
 # Email Phishing Confidence Extension
 
-A Chrome extension that analyzes email headers and bodies directly within your browser to provide a phishing confidence score and highlights suspicious elements. Uses heuristics and an optional AI integration via an OpenAI-style API endpoint to improve accuracy.
+A Chrome extension that analyzes email headers and bodies directly within your browser to provide a phishing confidence score and highlights suspicious elements. Uses advanced heuristics and optional AI integration via OpenAI-compatible APIs (including local FastAPI endpoints) to improve accuracy.
 
-This extension has been enhanced with comprehensive logging, detailed documentation, unit tests, and improved error handling to ensure robust functionality and easier maintenance.
+This extension has been comprehensively enhanced with robust heuristic detection, flexible AI integration, comprehensive logging, detailed documentation, unit tests, and improved error handling to ensure reliable phishing detection and easier maintenance.
 
 ## Features
 
 - **Real-time Analysis**: Automatically analyzes emails when you open them in Gmail
 - **Visual Indicators**: Displays a color-coded banner with phishing confidence score (0-100)
-- **Heuristic Detection**: Uses multiple heuristic techniques to identify suspicious patterns:
-  - Suspicious keywords (urgent, verify, password, etc.)
-  - Excessive links
-  - Domain mismatches between sender and links
-  - All-caps sentences and excessive exclamation marks
+- **Advanced Heuristic Detection**: Uses sophisticated techniques to identify phishing patterns:
+  - **Comprehensive Keyword Analysis**: Detects urgent, action, security, and financial keywords
+  - **Deceptive Link Detection**: Identifies mismatched display text vs actual URLs
+  - **Suspicious Domain Patterns**: Detects fake domains resembling legitimate services
   - **Email Authentication Analysis**: DKIM, SPF, and DMARC verification results
     - Failed DKIM authentication: +15 points
     - Failed SPF authentication: +12 points
@@ -20,7 +19,12 @@ This extension has been enhanced with comprehensive logging, detailed documentat
     - Multiple authentication failures: additional +10 points
     - All three authentication failures: additional +15 points
     - Passed authentication slightly reduces phishing scores
-- **AI-Powered Analysis**: Optional integration with OpenAI-style APIs for advanced detection
+  - **Generic/Impersonal Greetings**: Detects non-personalized salutations
+  - **Dangerous Combinations**: Higher scores for multiple suspicious indicators
+- **Flexible AI Integration**: Optional integration with multiple AI providers:
+  - **OpenAI API**: Full OpenAI GPT model support
+  - **Local FastAPI Endpoints**: Support for local AI models (no API key required)
+  - **Automatic Model Selection**: Uses server default models when not specified
 - **Link Highlighting**: Suspicious links are highlighted in red
 - **Safe List**: Mark emails as safe to skip future analysis
 - **Detailed Reports**: Expandable details section showing exactly what was detected
@@ -41,11 +45,21 @@ This extension has been enhanced with comprehensive logging, detailed documentat
 2. Choose your analysis mode:
    - **Enable AI Analysis**: Toggle on/off to use AI-powered analysis
    - When disabled, only fast heuristic analysis is used (more private, no API required)
-3. If AI analysis is enabled, configure:
-   - **API Endpoint**: URL for the OpenAI-style API (e.g., `https://api.openai.com/v1/chat/completions`)
-   - **API Key**: Your API key for authentication
-   - **Model**: Optional model specification (defaults to `gpt-4o-mini`)
-4. Click "Save" to store your settings
+3. If AI analysis is enabled, select your endpoint type:
+   - **OpenAI-style API**: For OpenAI or compatible cloud services
+   - **Local FastAPI Endpoint**: For local AI models (recommended for privacy)
+4. Configure based on your endpoint type:
+   
+   **For OpenAI-style API:**
+   - **API Endpoint**: URL (e.g., `https://api.openai.com/v1/chat/completions`)
+   - **API Key**: Your API key for authentication (required)
+   - **Model**: Model name (e.g., `gpt-4o-mini`, `gpt-3.5-turbo`)
+   
+   **For Local FastAPI Endpoint:**
+   - **API Endpoint**: Local server URL (e.g., `http://localhost:8002`, `http://10.1.141.6:8002`)
+   - **API Key**: Not required (field disabled)
+   - **Model**: Optional (leave empty to use server default, recommended)
+5. Click "Save" to store your settings
 
 ## Usage
 
@@ -178,6 +192,15 @@ To run the unit tests:
 2. Run `node tests/run-tests.js` from the command line
 
 All tests should pass before submitting any changes.
+
+### Testing Tools
+
+The extension includes several testing and debugging tools:
+
+- **`test-fastapi-endpoint.js`**: Tests FastAPI endpoint compatibility and model support
+- **`debug-extension-settings.js`**: Simulates extension requests for debugging API issues
+- **`tests/heuristic-tests.js`**: Comprehensive unit tests for all heuristic functions
+- **`tests/test-runner.html`**: Browser-based test runner with visual results
 
 ## License
 

@@ -15,41 +15,109 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.action === 'analyzeEmail') {
     const { body, header } = message;
     // Retrieve API configuration from storage
-    chrome.storage.sync.get(['apiEndpoint', 'apiKey', 'model'], async (cfg) => {
+    chrome.storage.sync.get(['apiEndpoint', 'apiKey', 'model', 'enableAI', 'endpointType'], async (cfg) => {
       const endpoint = cfg.apiEndpoint;
       const apiKey = cfg.apiKey;
-      const model = cfg.model || 'gpt-4o-mini';
-      if (!endpoint || !apiKey) {
-        console.log('AI analysis skipped: API configuration missing', { endpoint: !!endpoint, apiKey: !!apiKey });
-        sendResponse({ error: 'API configuration missing' });
+      const model = cfg.model || '';
+      console.error('[DEBUG] Retrieved model from storage:', JSON.stringify(model), 'Length:', model.length);
+      const enableAI = cfg.enableAI;
+      const endpointType = cfg.endpointType || 'openai';
+      
+      console.log('[PHISHING-EXT] AI analysis request received', { enableAI, endpointType, hasEndpoint: !!endpoint, hasApiKey: !!apiKey });
+      console.error('[DEBUG] AI analysis request received', { enableAI, endpointType, hasEndpoint: !!endpoint, hasApiKey: !!apiKey });
+      
+      // Check if AI is enabled
+      if (!enableAI) {
+        console.log('[PHISHING-EXT] AI analysis disabled in settings');
+        sendResponse({ error: 'AI analysis disabled' });
         return;
       }
       
-      console.log('Starting AI analysis with config:', { endpoint, model, hasApiKey: !!apiKey });
+      // Check endpoint configuration based on type
+      if (!endpoint) {
+        console.log('[PHISHING-EXT] AI analysis skipped: No endpoint configured');
+        sendResponse({ error: 'API endpoint missing' });
+        return;
+      }
+      
+      // For OpenAI endpoints, require API key
+      if (endpointType === 'openai' && !apiKey) {
+        console.log('[PHISHING-EXT] AI analysis skipped: API key missing for OpenAI endpoint');
+        sendResponse({ error: 'API key missing' });
+        return;
+      }
+      
+      console.log('[PHISHING-EXT] Starting AI analysis with config:', { endpoint, endpointType, model, hasApiKey: !!apiKey });
       try {
         const systemPrompt =
           'You are a cybersecurity assistant trained to detect phishing emails. Given the email headers and body, analyse the content for indicators of phishing such as mismatched sender domains, urgent or threatening language, requests for personal information, and suspicious links. Respond in JSON with two keys: "score" (an integer 0–100 where higher values indicate a greater likelihood of phishing) and "explanation" (a concise sentence explaining the reasoning). If the email appears legitimate, use a low score such as below 40; if it appears malicious use a high score such as above 80.';
         const userContent =
           'Headers:\n' + JSON.stringify(header) + '\n\nBody:\n' + body;
-        const payload = {
-          model: model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userContent }
-          ],
-          temperature: 0
-        };
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          },
-          body: JSON.stringify(payload)
-        });
+        
+        let res;
+        if (endpointType === 'fastapi') {
+          // For FastAPI endpoints, use OpenAI-compatible format but without API key
+          const payload = {
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userContent }
+            ],
+            temperature: 0
+          };
+          
+          // Only include model if one is specified
+          console.error('[DEBUG] Model check - model:', JSON.stringify(model), 'trimmed:', JSON.stringify(model.trim()), 'will include:', !!(model && model.trim()));
+          if (model && model.trim()) {
+            payload.model = model.trim();
+            console.log('[PHISHING-EXT] Including model in payload:', model.trim());
+            console.error('[DEBUG] Including model in payload:', model.trim());
+          } else {
+            console.log('[PHISHING-EXT] No model specified, using server default');
+            console.error('[DEBUG] No model specified, using server default');
+          }
+          
+          console.log('[PHISHING-EXT] Making FastAPI request to:', endpoint + '/v1/chat/completions');
+          console.log('[PHISHING-EXT] FastAPI payload:', JSON.stringify(payload, null, 2));
+          console.error('[DEBUG] Making FastAPI request to:', endpoint + '/v1/chat/completions');
+          console.error('[DEBUG] FastAPI payload:', JSON.stringify(payload, null, 2));
+          
+          res = await fetch(endpoint + '/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+          
+          console.log('[PHISHING-EXT] FastAPI response status:', res.status, res.statusText);
+        } else {
+          // For OpenAI-style APIs
+          const payload = {
+            model: model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userContent }
+            ],
+            temperature: 0
+          };
+          
+          console.log('[PHISHING-EXT] Making OpenAI request to:', endpoint);
+          console.log('[PHISHING-EXT] OpenAI payload:', payload);
+          
+          res = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+          });
+          
+          console.log('[PHISHING-EXT] OpenAI response status:', res.status, res.statusText);
+        }
         if (!res.ok) {
           const errorText = await res.text();
-          console.error('LLM request failed', {
+          console.error('[PHISHING-EXT] LLM request failed', {
             status: res.status,
             statusText: res.statusText,
             error: errorText
@@ -58,17 +126,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
         const data = await res.json();
-        // OpenAI style responses include an array of choices
+        console.log('[PHISHING-EXT] Raw API response:', data);
+        
+        // Handle OpenAI-style responses (both OpenAI and FastAPI should use this format)
         let content;
         if (data.choices && data.choices.length > 0) {
           content = data.choices[0].message.content.trim();
         } else if (data.message) {
           content = data.message.content.trim();
         } else {
+          console.error('[PHISHING-EXT] Invalid LLM response format:', data);
           sendResponse({ error: 'Invalid LLM response format' });
           return;
         }
-        console.log('Raw AI response content:', content);
+        console.log('[PHISHING-EXT] Raw AI response content:', content);
         
         // Strip markdown code blocks if present
         let cleanContent = content;
@@ -90,37 +161,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         let parsed;
         try {
-          parsed = JSON.parse(cleanContent);
-          console.log('Successfully parsed AI JSON:', parsed);
-        } catch (err) {
-          console.error('Failed to parse LLM JSON content', err, content);
-          // Attempt to extract score and explanation from non-JSON response
-          const numMatch = content.match(/(\d{1,3})/);
-          const score = numMatch ? parseInt(numMatch[1], 10) : NaN;
-          
-          // Try to extract a meaningful explanation from the raw text
-          let explanation = content;
-          // Remove any JSON-like artifacts
-          explanation = explanation.replace(/[{}"]/g, '').trim();
-          // If it's too long, truncate it
-          if (explanation.length > 200) {
-            explanation = explanation.substring(0, 200) + '...';
-          }
-          
-          sendResponse({ score: score, explanation: explanation });
-          return;
+          const result = JSON.parse(cleanContent);
+          console.log('[PHISHING-EXT] Parsed AI result:', result);
+          sendResponse({ score: result.score, explanation: result.explanation });
+        } catch (parseErr) {
+          console.error('[PHISHING-EXT] Failed to parse AI response as JSON:', parseErr, 'Content:', cleanContent);
+          sendResponse({ error: 'Invalid JSON response from AI' });
         }
-        
-        const score = typeof parsed.score === 'number' ? parsed.score : NaN;
-        const explanation = parsed.explanation || parsed.reasoning || null;
-        console.log('Sending AI analysis result:', { score, explanation });
-        sendResponse({ score, explanation });
       } catch (err) {
-        console.error('Error contacting LLM', err);
-        sendResponse({ error: 'Error contacting LLM' });
+        console.error('[PHISHING-EXT] AI analysis error:', err);
+        sendResponse({ error: 'AI analysis failed' });
       }
     });
-    // Indicate that we will respond asynchronously
-    return true;
+    return true; // Keep the message channel open for async response
   }
 });

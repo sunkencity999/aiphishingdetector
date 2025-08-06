@@ -118,22 +118,30 @@
     // Enhanced keyword list for phishing detection
     const urgentKeywords = [
       'urgent', 'immediate', 'asap', 'expires', 'deadline', 'time sensitive',
-      'act now', 'limited time', 'expires today', 'final notice', 'last chance'
+      'act now', 'limited time', 'expires today', 'final notice', 'last chance',
+      'needs your attention', 'requires immediate', 'must be completed',
+      'avoid losing', 'will result in', 'by thursday', 'by friday', 'by monday',
+      'within 24 hours', 'within 48 hours', 'before', 'review this document by'
     ];
     
     const actionKeywords = [
       'verify', 'confirm', 'update', 'validate', 'activate', 'click here',
-      'click below', 'click link', 'download', 'open attachment', 'view document'
+      'click below', 'click link', 'download', 'open attachment', 'view document',
+      'view it now', 'click the', 'access your', 'review this', 'complete this',
+      'take action', 'respond immediately', 'sign in', 'log in', 'login now'
     ];
     
     const securityKeywords = [
       'password', 'account', 'login', 'security', 'suspended', 'locked',
-      'compromised', 'unauthorized', 'breach', 'violation', 'alert'
+      'compromised', 'unauthorized', 'breach', 'violation', 'alert',
+      'policy document', 'security warning', 'access to your accounts',
+      'losing access', 'account closure', 'account suspension'
     ];
     
     const financialKeywords = [
       'bank', 'payment', 'invoice', 'refund', 'credit card', 'wire transfer',
-      'tax', 'irs', 'paypal', 'amazon', 'apple', 'microsoft', 'google'
+      'tax', 'irs', 'paypal', 'amazon', 'apple', 'microsoft', 'google',
+      'accounts', 'billing', 'financial'
     ];
     
     // Enhanced keyword scoring with different weights for different categories
@@ -186,6 +194,98 @@
       const linkScore = Math.min(20, (linkCount - 5) * 2);
       score += linkScore;
       details.push(`Contains many links (${linkCount})`);
+    }
+
+    // Enhanced deceptive link detection - check for links where display text doesn't match actual URL
+    const deceptiveLinkPatterns = [
+      // Pattern: display text shows one domain but URL goes to another
+      /\b([a-zA-Z0-9.-]+\.[a-zA-Z]{2,}[^\s<]*?)\b[^<]*<[^>]*href=["']https?:\/\/([^"'>\/]+)/gi,
+      // Pattern: text that looks like a URL but links elsewhere
+      /(https?:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}[^\s<]*)[^<]*<[^>]*href=["']https?:\/\/([^"'>\/]+)/gi,
+      // Pattern: simple text-based links (www.domain.com/path style)
+      /\b(www\.[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}[^\s<]*?)\b/gi
+    ];
+    
+    let deceptiveLinks = [];
+    
+    // Helper function to extract base domain
+    const getBaseDomain = (domain) => {
+      const parts = domain.replace(/^www\./i, '').split('.');
+      return parts.length >= 2 ? parts.slice(-2).join('.') : domain;
+    };
+    
+    // Check for HTML-style deceptive links
+    deceptiveLinkPatterns.slice(0, 2).forEach(pattern => {
+      let match;
+      while ((match = pattern.exec(body)) !== null) {
+        const displayDomain = match[1].replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+        const actualDomain = match[2];
+        
+        const displayBase = getBaseDomain(displayDomain.toLowerCase());
+        const actualBase = getBaseDomain(actualDomain.toLowerCase());
+        
+        if (displayBase !== actualBase) {
+          deceptiveLinks.push({ display: displayDomain, actual: actualDomain });
+        }
+      }
+    });
+    
+    // Check for suspicious domain patterns in display text (like www.Joby.aero/sharepoint/)
+    // This catches cases where the display text looks legitimate but may be deceptive
+    const suspiciousDisplayPatterns = [
+      /\bwww\.[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\/[^\s<]*/gi,  // www.domain.com/path patterns
+      /\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\/[a-zA-Z0-9._-]+/gi  // domain.com/path patterns
+    ];
+    
+    suspiciousDisplayPatterns.forEach(pattern => {
+      let match;
+      while ((match = pattern.exec(body)) !== null) {
+        const displayText = match[0];
+        const domain = displayText.split('/')[0].replace(/^www\./i, '');
+        
+        // Check if this looks like a legitimate domain being spoofed
+        const legitimateDomains = ['joby.aero', 'paypal.com', 'amazon.com', 'microsoft.com', 'google.com', 'apple.com'];
+        const isLegitimatePattern = legitimateDomains.some(legit => domain.toLowerCase().includes(legit.toLowerCase()));
+        
+        if (isLegitimatePattern) {
+          // This is suspicious - looks like a legitimate domain with a path that could be deceptive
+          deceptiveLinks.push({ display: displayText, actual: 'potentially deceptive link pattern', type: 'suspicious_pattern' });
+        }
+      }
+    });
+    
+    // Also check for markdown-style links [text](url) where text looks like a different domain
+    const markdownLinkRegex = /\[([^\]]*\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}[^\]]*)\]\(https?:\/\/([^)>\/]+)[^)]*\)/gi;
+    let markdownMatch;
+    while ((markdownMatch = markdownLinkRegex.exec(body)) !== null) {
+      const displayText = markdownMatch[1];
+      const actualDomain = markdownMatch[2];
+      
+      // Extract domain from display text
+      const domainInText = displayText.match(/\b([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/);
+      if (domainInText) {
+        const displayDomain = domainInText[1];
+        const getBaseDomain = (domain) => {
+          const parts = domain.split('.');
+          return parts.length >= 2 ? parts.slice(-2).join('.') : domain;
+        };
+        
+        const displayBase = getBaseDomain(displayDomain.toLowerCase());
+        const actualBase = getBaseDomain(actualDomain.toLowerCase());
+        
+        if (displayBase !== actualBase) {
+          deceptiveLinks.push({ display: displayDomain, actual: actualDomain });
+        }
+      }
+    }
+    
+    // Score deceptive links
+    if (deceptiveLinks.length > 0) {
+      const deceptiveScore = Math.min(25, deceptiveLinks.length * 15);
+      score += deceptiveScore;
+      const linkDescriptions = deceptiveLinks.map(link => `"${link.display}" → ${link.actual}`).slice(0, 3);
+      details.push(`Deceptive links detected (display text ≠ actual URL): ${linkDescriptions.join(', ')}${deceptiveLinks.length > 3 ? ` and ${deceptiveLinks.length - 3} more` : ''}`);
+      suspiciousElements.push(...deceptiveLinks.map(link => link.actual));
     }
 
     // Enhanced generic greeting detection with pattern matching
@@ -822,15 +922,20 @@
     function finishWithScore(llmScore, explanation) {
       logDebug('Finishing analysis with score', { llmScore, explanation });
       
-      // Normalize heuristic score to 0-100 scale for combination
-      const normalizedHeuristic = Math.min(100, Math.round((heuristics.score / 70) * 100));
-      const combinedScore = combineScores(normalizedHeuristic, llmScore || 0);
+      // Normalize heuristic score to 0-100 scale
+      // Use a more realistic maximum of 120 points for normalization
+      const normalizedHeuristic = Math.min(100, Math.round((heuristics.score / 120) * 100));
+      
+      // If no AI score available, use normalized heuristic directly
+      const finalScore = (typeof llmScore === 'number' && !isNaN(llmScore)) 
+        ? combineScores(normalizedHeuristic, llmScore)
+        : normalizedHeuristic;
       
       logDebug('Score combination results', { 
         heuristicScore: heuristics.score,
         normalizedHeuristic,
         llmScore,
-        combinedScore
+        finalScore
       });
       
       // Prepare detailed analysis for display
@@ -840,14 +945,9 @@
       analysisDetails.push(`Heuristic score: ${heuristics.score} (normalized: ${normalizedHeuristic})`);
       if (typeof llmScore === 'number' && !isNaN(llmScore)) {
         analysisDetails.push(`AI score: ${llmScore}`);
-      }
-      analysisDetails.push(`Combined score: ${combinedScore}`);
-      
-      // Add AI score if available
-      if (typeof llmScore === 'number' && !isNaN(llmScore)) {
-        analysisDetails.push(`Final Score: ${combinedScore}/100 (combined)`);
+        analysisDetails.push(`Final Score: ${finalScore}/100 (combined)`);
       } else {
-        analysisDetails.push(`Final Score: ${combinedScore}/100 (heuristics only)`);
+        analysisDetails.push(`Final Score: ${finalScore}/100 (heuristics only)`);
       }
       
       // Process AI explanation if available
@@ -913,20 +1013,23 @@
       }
       
       logDebug('Inserting phishing indicator', { 
-        combinedScore, 
+        finalScore, 
         detailsCount: analysisDetails.length,
         suspiciousElementsCount: heuristics.suspiciousElements.length 
       });
       
-      insertIndicator(messageContainer, combinedScore, analysisDetails, heuristics.suspiciousElements);
+      insertIndicator(messageContainer, finalScore, analysisDetails, heuristics.suspiciousElements);
       logDebug('Phishing indicator inserted successfully');
     }
 
     // Retrieve AI settings and call AI if enabled and configured
-    chrome.storage.sync.get(['apiEndpoint', 'apiKey', 'enableAI'], (cfg) => {
+    chrome.storage.sync.get(['apiEndpoint', 'apiKey', 'enableAI', 'endpointType'], (cfg) => {
       const endpoint = cfg.apiEndpoint;
       const key = cfg.apiKey;
       const enableAI = cfg.enableAI !== false; // Default to true if not set
+      const endpointType = cfg.endpointType || 'openai';
+      
+      logDebug('AI analysis configuration check', { enableAI, hasEndpoint: !!endpoint, hasApiKey: !!key, endpointType });
       
       if (!enableAI) {
         logInfo('AI analysis disabled by user setting');
@@ -934,8 +1037,16 @@
         return;
       }
       
-      if (!endpoint || !key) {
+      if (!endpoint) {
+        logInfo('AI analysis skipped: No endpoint configured');
         finishWithScore(NaN, null);
+        return;
+      }
+      
+      // For OpenAI endpoints, require API key; for FastAPI, it's optional
+      if (endpointType === 'openai' && !key) {
+        logInfo('AI analysis skipped: API key required for OpenAI endpoint');
+        finishWithScore(NaN, 'API key required for OpenAI endpoint');
         return;
       }
       // Send message to background to perform AI analysis
