@@ -632,7 +632,7 @@
       position: absolute;
       top: 100%;
       right: 0;
-      width: 320px;
+      width: 395px;
       max-height: 400px;
       background: white;
       border: 1px solid #dadce0;
@@ -703,38 +703,85 @@
     const sections = createAnalysisSections(details, suspiciousElements);
     sections.forEach(section => content.appendChild(section));
 
-    // Create footer with Mark as Safe button
+    // Create footer with all action buttons in a single row
     const footer = document.createElement('div');
     footer.style.cssText = `
       padding: 12px 16px;
       border-top: 1px solid #e8eaed;
       background: #f8f9fa;
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
+      gap: 8px;
     `;
 
-    const markSafeBtn = document.createElement('button');
-    markSafeBtn.textContent = 'Mark as Safe';
-    markSafeBtn.style.cssText = `
-      background: #1a73e8;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      padding: 8px 16px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
-      transition: background-color 0.2s;
-    `;
+    // Create button container for consistent styling
+    const createButton = (text, backgroundColor, hoverColor) => {
+      const button = document.createElement('button');
+      button.textContent = text;
+      button.style.cssText = `
+        background: ${backgroundColor};
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        transition: background-color 0.2s;
+        flex: 1;
+        min-width: 0;
+      `;
 
-    markSafeBtn.addEventListener('mouseenter', () => {
-      markSafeBtn.style.backgroundColor = '#1557b0';
+      button.addEventListener('mouseenter', () => {
+        button.style.backgroundColor = hoverColor;
+      });
+
+      button.addEventListener('mouseleave', () => {
+        button.style.backgroundColor = backgroundColor;
+      });
+
+      return button;
+    };
+
+    // Feedback button
+    const feedbackBtn = createButton('Feedback', '#34a853', '#2d8f47');
+    feedbackBtn.addEventListener('click', () => {
+      // Open Gmail compose with feedback template
+      const subject = encodeURIComponent('Joby Security Extension - Feedback');
+      const body = encodeURIComponent('Please provide your feedback about the Joby Security Extension:\n\n');
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=sec-joby@joby.aero&su=${subject}&body=${body}`;
+      window.open(gmailUrl, '_blank');
+      popup.style.display = 'none';
+      logInfo('Feedback email opened');
     });
 
-    markSafeBtn.addEventListener('mouseleave', () => {
-      markSafeBtn.style.backgroundColor = '#1a73e8';
+    // Report Phishing button
+    const reportBtn = createButton('Report Phishing', '#ea4335', '#d33b2c');
+    reportBtn.addEventListener('click', () => {
+      // Get email details for the report
+      const msgId = getMessageId(container);
+      const emailSubject = container.querySelector('[data-legacy-thread-id]')?.textContent || 'Unknown';
+      const sender = container.querySelector('[email]')?.getAttribute('email') || 'Unknown';
+      
+      // Open Gmail compose with phishing report template
+      const subject = encodeURIComponent('Phishing Report - Joby Security Extension');
+      const body = encodeURIComponent(
+        `PHISHING REPORT\n\n` +
+        `Email Subject: ${emailSubject}\n` +
+        `Sender: ${sender}\n` +
+        `Message ID: ${msgId || 'Unknown'}\n` +
+        `Phishing Score: ${score}/100\n\n` +
+        `Additional Details:\n` +
+        `Please provide any additional context about why you believe this email is phishing:\n\n`
+      );
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=sec-joby@joby.aero&su=${subject}&body=${body}`;
+      window.open(gmailUrl, '_blank');
+      popup.style.display = 'none';
+      logInfo('Phishing report email opened', { messageId: msgId, score });
     });
 
+    // Mark as Safe button
+    const markSafeBtn = createButton('Mark as Safe', '#1a73e8', '#1557b0');
     markSafeBtn.addEventListener('click', () => {
       // Mark message as safe
       const msgId = getMessageId(container);
@@ -756,6 +803,9 @@
       logInfo('Message marked as safe', { messageId: msgId });
     });
 
+    // Add all buttons to footer
+    footer.appendChild(feedbackBtn);
+    footer.appendChild(reportBtn);
     footer.appendChild(markSafeBtn);
 
     popup.appendChild(header);
