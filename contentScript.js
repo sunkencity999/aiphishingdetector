@@ -92,6 +92,15 @@
     const details = [];
     const suspiciousElements = [];
     
+    // Debug logging to see what data we're receiving
+    logDebug('computeHeuristics called with:', {
+      bodyLength: (body || '').length,
+      bodyPreview: (body || '').substring(0, 200),
+      headerFrom: header?.from,
+      headerSubject: header?.subject,
+      hasAuthentication: !!header?.authentication
+    });
+    
     // Initialize suspicious domains - will be populated via API in the future
     // Format: { domain: string, riskLevel: 'high'|'medium'|'low', lastUpdated: number }
     const suspiciousDomains = [
@@ -450,6 +459,14 @@
     // Normalize final score within 0–70 range for heuristics.  AI analysis may bring it closer to 100.
     score = Math.min(70, score);
 
+    // Debug logging to see final results
+    logDebug('computeHeuristics final results:', {
+      finalScore: score,
+      detailsCount: details.length,
+      details: details,
+      suspiciousElementsCount: suspiciousElements.length
+    });
+
     return { score, details, suspiciousElements };
   }
 
@@ -559,9 +576,10 @@
    * @returns {HTMLElement} The created icon element
    */
   function createSecurityIcon(score) {
-    const icon = document.createElement('div');
-    icon.className = 'phishing-security-icon';
-    icon.setAttribute('data-phishing-score', score);
+    // Create a button container that matches Gmail's toolbar button size
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'phishing-security-button';
+    buttonContainer.setAttribute('data-phishing-score', score);
     
     // Determine icon color based on risk level
     let iconColor, tooltip;
@@ -576,44 +594,61 @@
       tooltip = `Low phishing risk (${score}/100)`;
     }
 
-    // Style the icon to match Gmail's design
-    icon.style.cssText = `
+    // Style the button container to match Gmail's toolbar buttons (36x36px)
+    buttonContainer.style.cssText = `
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      margin: 0;
+      cursor: pointer;
+      border-radius: 50%;
+      position: relative;
+      transition: all 0.2s ease;
+      background-color: transparent;
+    `;
+
+    // Create the actual shield icon (smaller, centered within the button)
+    const shieldIcon = document.createElement('div');
+    shieldIcon.style.cssText = `
       display: inline-flex;
       align-items: center;
       justify-content: center;
       width: 20px;
       height: 20px;
-      margin: 0;
-      cursor: pointer;
       border-radius: 50%;
       background-color: ${iconColor};
-      position: relative;
-      transition: all 0.2s ease;
       box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      pointer-events: none;
     `;
 
     // Add shield icon using CSS
-    icon.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+    shieldIcon.innerHTML = `
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="white" style="pointer-events: none;">
         <path d="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,7C13.4,7 14.8,8.6 14.8,10.5V11.5C15.4,11.5 16,12.4 16,13V16C16,16.6 15.6,17 15,17H9C8.4,17 8,16.6 8,16V13C8,12.4 8.4,11.5 9,11.5V10.5C9,8.6 10.6,7 12,7M12,8.2C11.2,8.2 10.2,8.7 10.2,10.5V11.5H13.8V10.5C13.8,8.7 12.8,8.2 12,8.2Z"/>
       </svg>
     `;
 
-    // Add hover effects
-    icon.addEventListener('mouseenter', () => {
-      icon.style.transform = 'scale(1.1)';
-      icon.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
+    buttonContainer.appendChild(shieldIcon);
+
+    // Add hover effects to the button container
+    buttonContainer.addEventListener('mouseenter', () => {
+      buttonContainer.style.backgroundColor = 'rgba(0,0,0,0.04)';
+      shieldIcon.style.transform = 'scale(1.1)';
+      shieldIcon.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
     });
 
-    icon.addEventListener('mouseleave', () => {
-      icon.style.transform = 'scale(1)';
-      icon.style.boxShadow = '0 1px 3px rgba(0,0,0,0.2)';
+    buttonContainer.addEventListener('mouseleave', () => {
+      buttonContainer.style.backgroundColor = 'transparent';
+      shieldIcon.style.transform = 'scale(1)';
+      shieldIcon.style.boxShadow = '0 1px 3px rgba(0,0,0,0.2)';
     });
 
     // Add tooltip
-    icon.title = tooltip;
+    buttonContainer.title = tooltip;
 
-    return icon;
+    return buttonContainer;
   }
 
   /**
@@ -629,17 +664,16 @@
     const popup = document.createElement('div');
     popup.className = 'phishing-analysis-popup';
     popup.style.cssText = `
-      position: absolute;
-      top: 100%;
-      right: 0;
+      position: fixed !important;
       width: 395px;
-      max-height: 400px;
-      background: white;
+      max-height: 600px;
+      background: white !important;
       border: 1px solid #dadce0;
       border-radius: 8px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-      z-index: 10000;
-      display: none;
+      z-index: 2147483647 !important;
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
       font-family: 'Google Sans', Roboto, Arial, sans-serif;
       font-size: 14px;
@@ -654,6 +688,7 @@
       padding: 16px;
       border-bottom: 1px solid #e8eaed;
       background: #f8f9fa;
+      flex-shrink: 0;
     `;
 
     const title = document.createElement('div');
@@ -691,12 +726,13 @@
     // Create popup content
     const content = document.createElement('div');
     content.style.cssText = `
-      max-height: 280px;
+      flex: 1;
       overflow-y: auto;
       overflow-x: hidden;
       padding: 0;
       word-wrap: break-word;
       overflow-wrap: break-word;
+      min-height: 0;
     `;
 
     // Add analysis sections
@@ -712,6 +748,7 @@
       display: flex;
       justify-content: space-between;
       gap: 8px;
+      flex-shrink: 0;
     `;
 
     // Create button container for consistent styling
@@ -913,23 +950,40 @@
    * @param {HTMLElement} popup - The analysis popup element
    */
   function insertIconIntoToolbar(toolbar, icon, popup) {
-    // Create a container for the icon and popup
+    // Create a container for the icon and popup with proper spacing and z-index
     const container = document.createElement('div');
     container.style.cssText = `
       position: relative;
       display: inline-flex;
       align-items: center;
-      margin: 0 -8px 0 4px;
+      margin: 0 4px 0 4px;
+      z-index: 1000;
     `;
     
     container.appendChild(icon);
-    container.appendChild(popup);
+    // Append popup directly to document body to escape Gmail's stacking context
+    document.body.appendChild(popup);
 
-    // Find the star icon and reply button for precise positioning
+    // Look for Gmail's emoji/reaction button first (highest priority)
+    const emojiButton = toolbar.querySelector('[data-tooltip*="emoji"], [aria-label*="emoji"], [data-tooltip*="reaction"], [aria-label*="reaction"], .T-I[data-tooltip*="Add emoji reaction"]');
+    
+    // Find other toolbar elements for positioning
     const starButton = toolbar.querySelector('[data-tooltip*="Star"], [aria-label*="Star"], .T-I-J3');
     const replyButton = toolbar.querySelector('[data-tooltip*="Reply"], [aria-label*="Reply"], .T-I-J3');
+    const moreButton = toolbar.querySelector('[data-tooltip*="More"], [aria-label*="More"], .T-I-ax7');
     
-    // Look for the star icon in the message container if not found in toolbar
+    // Priority 1: Insert immediately after emoji/reaction button if it exists
+    if (emojiButton) {
+      if (emojiButton.nextSibling) {
+        toolbar.insertBefore(container, emojiButton.nextSibling);
+      } else {
+        toolbar.appendChild(container);
+      }
+      logDebug('Inserted security icon after emoji/reaction button');
+      return;
+    }
+    
+    // Priority 2: Look for the star icon in the message container if not found in toolbar
     if (!starButton) {
       const messageContainer = toolbar.closest('[data-message-id]');
       if (messageContainer) {
@@ -950,15 +1004,12 @@
       }
     }
     
-    // Fallback positioning logic
-    const moreButton = toolbar.querySelector('[data-tooltip*="More"], [aria-label*="More"], .T-I-ax7');
-    
+    // Priority 3: Insert before reply button
     if (replyButton) {
-      // Insert before the reply button for better positioning
       toolbar.insertBefore(container, replyButton);
       logDebug('Inserted security icon before Reply button');
     } else if (moreButton) {
-      // Insert before the "More" button
+      // Priority 4: Insert before the "More" button
       toolbar.insertBefore(container, moreButton);
       logDebug('Inserted security icon before More button');
     } else {
@@ -972,21 +1023,47 @@
     icon.addEventListener('click', (e) => {
       e.stopPropagation();
       isPopupVisible = !isPopupVisible;
-      popup.style.display = isPopupVisible ? 'block' : 'none';
+      popup.style.display = isPopupVisible ? 'flex' : 'none';
       
       if (isPopupVisible) {
-        // Position popup correctly
+        // Position popup correctly using fixed positioning
         const iconRect = icon.getBoundingClientRect();
         const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const popupWidth = 395;
+        const popupMaxHeight = 600; // max-height from CSS
         
-        // Adjust popup position if it would go off-screen
-        if (iconRect.right + 320 > viewportWidth) {
-          popup.style.right = '0';
-          popup.style.left = 'auto';
-        } else {
-          popup.style.left = '0';
-          popup.style.right = 'auto';
+        // Position popup below the icon
+        let top = iconRect.bottom + 8; // 8px gap below icon
+        let left = iconRect.left;
+        
+        // Adjust horizontal position if popup would go off-screen
+        if (left + popupWidth > viewportWidth) {
+          left = iconRect.right - popupWidth; // Align right edge with icon
         }
+        
+        // Adjust vertical position if popup would go off-screen
+        if (top + popupMaxHeight > viewportHeight) {
+          top = iconRect.top - popupMaxHeight - 8; // Position above icon instead
+        }
+        
+        // Ensure popup doesn't go above viewport
+        if (top < 8) {
+          top = 8;
+          // If we're constrained at the top, reduce the popup height
+          const availableHeight = viewportHeight - top - 16; // 16px margin from bottom
+          popup.style.maxHeight = `${Math.min(popupMaxHeight, availableHeight)}px`;
+        }
+        
+        // Ensure popup doesn't go left of viewport
+        if (left < 8) {
+          left = 8;
+        }
+        
+        popup.style.display = 'flex';
+        popup.style.top = `${top}px`;
+        popup.style.left = `${left}px`;
+        popup.style.right = 'auto';
       }
     });
 
@@ -1462,13 +1539,72 @@
       // broaden our search to `.adn` and `.a3s` for robustness.
       const messageContainers = document.querySelectorAll('div.adn, div[data-message-id]');
       messageContainers.forEach(async (mc) => {
-        await analyseMessage(mc);
+        // Filter out Gmail system messages and notifications
+        if (isValidEmailContainer(mc)) {
+          await analyseMessage(mc);
+        }
       });
     });
     observer.observe(document.body, { childList: true, subtree: true });
     // Run initial scan
     const initialContainers = document.querySelectorAll('div.adn, div[data-message-id]');
-    initialContainers.forEach(async (mc) => await analyseMessage(mc));
+    initialContainers.forEach(async (mc) => {
+      if (isValidEmailContainer(mc)) {
+        await analyseMessage(mc);
+      }
+    });
+  }
+
+  /**
+   * Checks if a container represents a valid email message (not a Gmail system notification)
+   * @param {HTMLElement} container - The potential message container
+   * @returns {boolean} True if this is a valid email to analyze
+   */
+  function isValidEmailContainer(container) {
+    // Skip if no container
+    if (!container) return false;
+    
+    // Must have a message body element
+    const bodyEl = container.querySelector('div.a3s');
+    if (!bodyEl) return false;
+    
+    // Skip Gmail system notifications and spam warnings
+    const bodyText = (bodyEl.innerText || bodyEl.textContent || '').toLowerCase();
+    const systemMessagePatterns = [
+      'why is this message in spam',
+      'this message is similar to messages that were identified as spam',
+      'report not spam',
+      'gmail couldn\'t verify that',
+      'be careful with this message',
+      'this message seems dangerous'
+    ];
+    
+    if (systemMessagePatterns.some(pattern => bodyText.includes(pattern))) {
+      logDebug('Skipping Gmail system message', { bodyPreview: bodyText.substring(0, 100) });
+      return false;
+    }
+    
+    // Must have reasonable content length (system messages are usually very short)
+    if (bodyText.trim().length < 20) {
+      logDebug('Skipping container with insufficient content', { length: bodyText.length });
+      return false;
+    }
+    
+    // Should have sender information for a real email
+    const fromEl = container.querySelector('span.gD');
+    if (!fromEl) {
+      logDebug('Skipping container without sender information');
+      return false;
+    }
+    
+    logDebug('Valid email container found', { 
+      hasBody: !!bodyEl,
+      hasSender: !!fromEl,
+      bodyLength: bodyText.length,
+      bodyPreview: bodyText.substring(0, 100)
+    });
+    
+    return true;
   }
 
   // Wait until Gmail is fully loaded, then begin observing messages.
