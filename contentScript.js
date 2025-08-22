@@ -576,11 +576,6 @@
    * @returns {HTMLElement} The created icon element
    */
   function createSecurityIcon(score) {
-    // Create a button container that matches Gmail's toolbar button size
-    const buttonContainer = document.createElement('div');
-    buttonContainer.className = 'phishing-security-button';
-    buttonContainer.setAttribute('data-phishing-score', score);
-    
     // Determine icon color based on risk level
     let iconColor, tooltip;
     if (score >= 80) {
@@ -594,61 +589,57 @@
       tooltip = `Low phishing risk (${score}/100)`;
     }
 
-    // Style the button container to match Gmail's toolbar buttons (36x36px)
-    buttonContainer.style.cssText = `
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 36px;
-      height: 36px;
-      margin: 0;
-      cursor: pointer;
-      border-radius: 50%;
-      position: relative;
-      transition: all 0.2s ease;
-      background-color: transparent;
-    `;
+    // Create a Gmail-style toolbar button (uses native Gmail classes)
+    const buttonEl = document.createElement('div');
+    // T-I is Gmail button; J-J5-Ji provides spacing/hover; T-I-Js-Gs keeps round hover style
+    buttonEl.className = 'T-I J-J5-Ji T-I-Js-Gs phishing-security-icon';
+    buttonEl.setAttribute('role', 'button');
+    buttonEl.setAttribute('tabindex', '0');
+    buttonEl.setAttribute('aria-label', tooltip);
+    buttonEl.setAttribute('data-tooltip', tooltip);
+    buttonEl.style.cssText = `
+      display: inline-flex; align-items: center; justify-content: center; padding: 0; opacity: 1;`;
+    // Guard against Gmail CSS lowering opacity
+    try { buttonEl.style.setProperty('opacity', '1', 'important'); } catch (_) {}
+    buttonEl.setAttribute('data-phishing-score', String(score));
 
-    // Create the actual shield icon (smaller, centered within the button)
-    const shieldIcon = document.createElement('div');
-    shieldIcon.style.cssText = `
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background-color: ${iconColor};
-      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-      pointer-events: none;
-    `;
+    // Insert a compact shield inside using an <img> with data URL SVG to avoid Gmail CSS overrides
+    const svgMarkup = `<?xml version="1.0" encoding="UTF-8"?>
+      <svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24'>
+        <!-- Colored background circle -->
+        <circle cx='12' cy='12' r='9.5' fill='${iconColor}'/>
+        <!-- White shield -->
+        <path d='M12 6 L7.5 8.2 V12.6 C7.5 15.8 9.6 18.8 12 19.7 C14.4 18.8 16.5 15.8 16.5 12.6 V8.2 L12 6 Z' fill='white'/>
+        <!-- Lock inside shield (same color as background so it reads as a cutout) -->
+        <path d='M12 9.2 C10.9 9.2 10 10.1 10 11.2 V12 H9.2 C8.9 12 8.7 12.2 8.7 12.5 V15.1 C8.7 15.4 8.9 15.6 9.2 15.6 H14.8 C15.1 15.6 15.3 15.4 15.3 15.1 V12.5 C15.3 12.2 15.1 12 14.8 12 H14 V11.2 C14 10.1 13.1 9.2 12 9.2 Z M12 10.4 C12.5 10.4 12.9 10.8 12.9 11.2 V12 H11.1 V11.2 C11.1 10.8 11.5 10.4 12 10.4 Z' fill='${iconColor}'/>
+      </svg>`;
+    const img = document.createElement('img');
+    img.src = 'data:image/svg+xml;base64,' + btoa(svgMarkup);
+    img.width = 22;
+    img.height = 22;
+    img.style.pointerEvents = 'none';
+    img.style.opacity = '1';
+    try { img.style.setProperty('opacity', '1', 'important'); } catch(_) {}
+    try { img.style.setProperty('filter', 'none', 'important'); } catch(_) {}
+    try { img.style.setProperty('-webkit-filter', 'none', 'important'); } catch(_) {}
+    img.style.mixBlendMode = 'normal';
+    img.style.imageRendering = 'auto';
+    img.style.boxShadow = 'none';
+    buttonEl.appendChild(img);
 
-    // Add shield icon using CSS
-    shieldIcon.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="white" style="pointer-events: none;">
-        <path d="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,7C13.4,7 14.8,8.6 14.8,10.5V11.5C15.4,11.5 16,12.4 16,13V16C16,16.6 15.6,17 15,17H9C8.4,17 8,16.6 8,16V13C8,12.4 8.4,11.5 9,11.5V10.5C9,8.6 10.6,7 12,7M12,8.2C11.2,8.2 10.2,8.7 10.2,10.5V11.5H13.8V10.5C13.8,8.7 12.8,8.2 12,8.2Z"/>
-      </svg>
-    `;
-
-    buttonContainer.appendChild(shieldIcon);
-
-    // Add hover effects to the button container
-    buttonContainer.addEventListener('mouseenter', () => {
-      buttonContainer.style.backgroundColor = 'rgba(0,0,0,0.04)';
-      shieldIcon.style.transform = 'scale(1.1)';
-      shieldIcon.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
+    // Add a subtle hover ring for visibility
+    buttonEl.addEventListener('mouseenter', () => {
+      buttonEl.style.backgroundColor = 'rgba(0,0,0,0.04)';
+      img.style.boxShadow = '0 0 0 2px rgba(60,64,67,0.25)'; // subtle dark ring
+      img.style.borderRadius = '50%';
     });
 
-    buttonContainer.addEventListener('mouseleave', () => {
-      buttonContainer.style.backgroundColor = 'transparent';
-      shieldIcon.style.transform = 'scale(1)';
-      shieldIcon.style.boxShadow = '0 1px 3px rgba(0,0,0,0.2)';
+    buttonEl.addEventListener('mouseleave', () => {
+      buttonEl.style.backgroundColor = 'transparent';
+      img.style.boxShadow = 'none';
     });
 
-    // Add tooltip
-    buttonContainer.title = tooltip;
-
-    return buttonContainer;
+    return buttonEl;
   }
 
   /**
@@ -950,17 +941,6 @@
    * @param {HTMLElement} popup - The analysis popup element
    */
   function insertIconIntoToolbar(toolbar, icon, popup) {
-    // Create a container for the icon and popup with proper spacing and z-index
-    const container = document.createElement('div');
-    container.style.cssText = `
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      margin: 0 4px 0 4px;
-      z-index: 1000;
-    `;
-    
-    container.appendChild(icon);
     // Append popup directly to document body to escape Gmail's stacking context
     document.body.appendChild(popup);
 
@@ -975,11 +955,20 @@
     // Priority 1: Insert immediately after emoji/reaction button if it exists
     if (emojiButton) {
       if (emojiButton.nextSibling) {
-        toolbar.insertBefore(container, emojiButton.nextSibling);
+        toolbar.insertBefore(icon, emojiButton.nextSibling);
       } else {
-        toolbar.appendChild(container);
+        toolbar.appendChild(icon);
       }
       logDebug('Inserted security icon after emoji/reaction button');
+      // Normalize spacing to match adjacent buttons
+      try {
+        const sample = toolbar.querySelector('.T-I:not(.phishing-security-icon)');
+        if (sample) {
+          const cs = window.getComputedStyle(sample);
+          icon.style.marginLeft = cs.marginLeft;
+          icon.style.marginRight = cs.marginRight;
+        }
+      } catch(_) {}
       return;
     }
     
@@ -995,8 +984,16 @@
             // Insert right after the star icon's container
             const starContainer = starIcon.closest('.T-I, .ar9') || starIcon.parentElement;
             if (starContainer && starContainer.nextSibling) {
-              commonParent.insertBefore(container, starContainer.nextSibling);
+              commonParent.insertBefore(icon, starContainer.nextSibling);
               logDebug('Inserted security icon between star and reply icons');
+              try {
+                const sample = commonParent.querySelector('.T-I:not(.phishing-security-icon)');
+                if (sample) {
+                  const cs = window.getComputedStyle(sample);
+                  icon.style.marginLeft = cs.marginLeft;
+                  icon.style.marginRight = cs.marginRight;
+                }
+              } catch(_) {}
               return;
             }
           }
@@ -1006,17 +1003,27 @@
     
     // Priority 3: Insert before reply button
     if (replyButton) {
-      toolbar.insertBefore(container, replyButton);
+      toolbar.insertBefore(icon, replyButton);
       logDebug('Inserted security icon before Reply button');
     } else if (moreButton) {
       // Priority 4: Insert before the "More" button
-      toolbar.insertBefore(container, moreButton);
+      toolbar.insertBefore(icon, moreButton);
       logDebug('Inserted security icon before More button');
     } else {
       // Fallback: append to the end of the toolbar
-      toolbar.appendChild(container);
+      toolbar.appendChild(icon);
       logDebug('Inserted security icon at end of toolbar');
     }
+
+    // Normalize spacing in default/fallback cases as well
+    try {
+      const sample = toolbar.querySelector('.T-I:not(.phishing-security-icon)');
+      if (sample) {
+        const cs = window.getComputedStyle(sample);
+        icon.style.marginLeft = cs.marginLeft;
+        icon.style.marginRight = cs.marginRight;
+      }
+    } catch(_) {}
 
     // Add click handler to show/hide popup
     let isPopupVisible = false;
@@ -1069,7 +1076,7 @@
 
     // Close popup when clicking outside
     document.addEventListener('click', (e) => {
-      if (!container.contains(e.target) && isPopupVisible) {
+      if (!icon.contains(e.target) && isPopupVisible) {
         popup.style.display = 'none';
         isPopupVisible = false;
       }
