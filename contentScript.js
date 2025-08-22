@@ -578,7 +578,7 @@
   function createSecurityIcon(score) {
     // Determine icon color based on risk level
     let iconColor, tooltip;
-    if (score >= 80) {
+    if (score >= 71) {
       iconColor = '#d32f2f'; // Red for high risk
       tooltip = `High phishing risk (${score}/100)`;
     } else if (score >= 40) {
@@ -698,7 +698,7 @@
     `;
     
     let riskLevel, riskColor;
-    if (score >= 80) {
+    if (score >= 71) {
       riskLevel = 'High Risk';
       riskColor = '#d32f2f';
     } else if (score >= 40) {
