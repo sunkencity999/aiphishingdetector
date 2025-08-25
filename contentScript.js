@@ -1448,6 +1448,65 @@
       
       insertIndicator(messageContainer, finalScore, analysisDetails, heuristics.suspiciousElements);
       logDebug('Phishing indicator inserted successfully');
+
+      // Auto-report High Risk messages (>=71) once per message
+      try {
+        const alreadyReported = messageContainer.getAttribute('data-phishing-reported') === 'true';
+        const msgId = getMessageId(messageContainer) || null;
+        if (finalScore >= 71 && !alreadyReported && msgId) {
+          chrome.storage.local.get({ reportedList: [] }, (res) => {
+            const reportedList = Array.isArray(res.reportedList) ? res.reportedList : [];
+            if (reportedList.includes(msgId)) {
+              logDebug('Message already reported (storage cache)', { messageId: msgId });
+              return;
+            }
+
+            // Build server payload
+            const auth = header?.authentication || {};
+            const normalize = (val) => {
+              const s = (val && typeof val.status === 'string') ? val.status.toLowerCase() : 'unknown';
+              return ['pass', 'fail', 'none', 'unknown'].includes(s) ? s : 'unknown';
+            };
+
+            const reportPayload = {
+              message_id: msgId,
+              subject: header?.subject || 'Unknown',
+              from_address: header?.from || 'unknown@unknown',
+              to_address: header?.to || null,
+              final_score: finalScore,
+              heuristic_score: heuristics.score,
+              llm_score: (typeof llmScore === 'number' && !isNaN(llmScore)) ? llmScore : null,
+              details: analysisDetails,
+              suspicious_elements: heuristics.suspiciousElements || [],
+              auth_results: {
+                dkim: { status: normalize(auth.dkim) },
+                spf: { status: normalize(auth.spf) },
+                dmarc: { status: normalize(auth.dmarc) }
+              },
+              analysed_at: new Date().toISOString()
+            };
+
+            logInfo('Auto-reporting high-risk email', { messageId: msgId, finalScore });
+            chrome.runtime.sendMessage({ action: 'autoReportPhishing', report: reportPayload }, (response) => {
+              if (chrome.runtime.lastError) {
+                logError('Auto-report send error', chrome.runtime.lastError);
+                return;
+              }
+              if (response && response.ok) {
+                // mark as reported both in DOM and storage
+                messageContainer.setAttribute('data-phishing-reported', 'true');
+                const updated = Array.from(new Set([ ...reportedList, msgId ]));
+                chrome.storage.local.set({ reportedList: updated });
+                logInfo('Auto-report completed', { messageId: msgId, status: response.data?.status });
+              } else {
+                logWarn('Auto-report failed', response);
+              }
+            });
+          });
+        }
+      } catch (e) {
+        logWarn('Auto-reporting encountered an error', e);
+      }
     }
 
     // Retrieve AI settings and call AI if enabled and configured

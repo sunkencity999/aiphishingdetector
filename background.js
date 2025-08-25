@@ -175,4 +175,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true; // Keep the message channel open for async response
   }
+  
+  // Handle auto-reporting of high-risk phishing emails via backend webhook
+  if (message && message.action === 'autoReportPhishing') {
+    const payload = message.report || {};
+    // Allow overriding endpoint via storage; default to provided VPN address
+    chrome.storage.sync.get(['reportEndpoint'], async (cfg) => {
+      const endpoint = (cfg && cfg.reportEndpoint) ? cfg.reportEndpoint : 'http://10.1.141.6:8005/report-phishing';
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          console.error('[PHISHING-EXT] Report POST failed', res.status, res.statusText, data);
+          sendResponse({ ok: false, status: res.status, error: data?.detail || res.statusText });
+          return;
+        }
+        console.log('[PHISHING-EXT] Report POST success', data);
+        sendResponse({ ok: true, data });
+      } catch (err) {
+        console.error('[PHISHING-EXT] Report POST error', err);
+        sendResponse({ ok: false, error: String(err) });
+      }
+    });
+    return true; // async response
+  }
 });
