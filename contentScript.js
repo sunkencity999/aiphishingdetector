@@ -1537,6 +1537,46 @@
         logDebug('DOM deceptive link extraction failed', e);
       }
 
+      // Add click confirmation for flagged/deceptive links within this message
+      try {
+        const anchors = Array.from(messageContainer.querySelectorAll('div.a3s a[href]'));
+        const flagged = new Set((heuristics.suspiciousElements || []).map(u => String(u).toLowerCase()));
+        anchors.forEach(a => {
+          if (a.getAttribute('data-phishing-listener') === 'true') return;
+          a.setAttribute('data-phishing-listener', 'true');
+          a.addEventListener('click', (evt) => {
+            const href = a.getAttribute('href') || '';
+            const hrefLower = href.toLowerCase();
+            let shouldConfirm = false;
+
+            // Confirm if href matches any flagged element substring
+            if (hrefLower && flagged.size > 0) {
+              for (const f of flagged) { if (f && hrefLower.includes(f)) { shouldConfirm = true; break; } }
+            }
+
+            // If not already flagged, check display-text domain vs destination host mismatch
+            if (!shouldConfirm) {
+              const text = (a.innerText || a.textContent || '').trim();
+              let host = '';
+              try { host = new URL(href).host.replace(/^www\./i, '').toLowerCase(); } catch (_) {}
+              const match = text.match(/\b([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/);
+              const textDom = match ? match[1].replace(/^www\./i, '').toLowerCase() : '';
+              shouldConfirm = !!(textDom && host && !host.endsWith(textDom));
+            }
+
+            if (shouldConfirm) {
+              const ok = confirm('Caution: This link may be deceptive or flagged by analysis. Do you want to proceed?');
+              if (!ok) {
+                evt.preventDefault();
+                evt.stopPropagation();
+              }
+            }
+          }, true); // capture phase to intercept early
+        });
+      } catch (e) {
+        logDebug('Failed to attach click confirmations', e);
+      }
+
       logDebug('Inserting phishing indicator', { 
         finalScore, 
         detailsCount: analysisDetails.length,
