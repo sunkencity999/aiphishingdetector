@@ -1264,6 +1264,78 @@
    *
    * @param {HTMLElement} messageContainer
    */
+  // Best-effort extraction of authentication results from visible Gmail details.
+  // Returns a stable structure even if data isn't present.
+  async function extractAuthenticationResults(messageContainer) {
+    const result = {
+      dkim: { status: 'unknown' },
+      spf: { status: 'unknown' },
+      dmarc: { status: 'unknown' }
+    };
+
+    try {
+      // Helper: normalize domain
+      const norm = (d) => (d || '').trim().replace(/^www\./i, '').toLowerCase();
+
+      // Collect candidate text nodes from the container header area
+      // Look around common Gmail header sections within this message container
+      const headerScopes = [
+        messageContainer,
+        messageContainer.closest('div.adn') || undefined,
+      ].filter(Boolean);
+
+      let signedByDomain = '';
+      let mailedByDomain = '';
+
+      headerScopes.forEach(scope => {
+        const nodes = Array.from(scope.querySelectorAll('div, span, td, tr, table'));
+        nodes.forEach(n => {
+          const t = (n.innerText || n.textContent || '').trim();
+          if (!t) return;
+          // Look for patterns like: signed-by example.com
+          const sb = t.match(/\b(signed-by)\s+([a-z0-9.-]+\.[a-z]{2,})/i);
+          if (sb && !signedByDomain) signedByDomain = norm(sb[2]);
+          const mb = t.match(/\b(mailed-by)\s+([a-z0-9.-]+\.[a-z]{2,})/i);
+          if (mb && !mailedByDomain) mailedByDomain = norm(mb[2]);
+        });
+      });
+
+      if (signedByDomain) {
+        result.dkim.status = 'pass';
+        result.dkim.domain = signedByDomain;
+      }
+      if (mailedByDomain) {
+        result.spf.status = 'pass';
+        result.spf.domain = mailedByDomain;
+      }
+
+      // Infer DMARC: if DKIM or SPF pass and align with From domain, call it pass
+      try {
+        const fromEl = messageContainer.querySelector('span.gD');
+        const fromAddr = fromEl ? (fromEl.getAttribute('email') || fromEl.innerText || '') : '';
+        const fromDomain = norm((fromAddr.split('@')[1]) || '');
+        const aligned = (d) => d && fromDomain && (fromDomain === d || fromDomain.endsWith('.' + d));
+        const dkimPassAligned = result.dkim.status === 'pass' && aligned(result.dkim.domain);
+        const spfPassAligned = result.spf.status === 'pass' && aligned(result.spf.domain);
+        if (dkimPassAligned || spfPassAligned) {
+          result.dmarc.status = 'pass';
+          result.dmarc.domain = fromDomain;
+        } else if (result.dkim.status === 'pass' || result.spf.status === 'pass') {
+          // At least one passed but not aligned -> likely DMARC fail
+          result.dmarc.status = 'fail';
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      logDebug('extractAuthenticationResults parsed', result);
+    } catch (e) {
+      logWarn('extractAuthenticationResults error', e);
+    }
+
+    return result;
+  }
+
   async function analyseMessage(messageContainer) {
     if (!messageContainer ||
         messageContainer.getAttribute(ANALYZED_FLAG) ||
@@ -1440,6 +1512,31 @@
         analysisDetails.push('AI Analysis: Not available');
       }
       
+      // Supplement details with DOM-based deceptive link analysis (actual hrefs)
+      try {
+        const anchors = Array.from(messageContainer.querySelectorAll('div.a3s a[href]'));
+        const deceptiveAnchors = [];
+        anchors.forEach(a => {
+          const href = a.getAttribute('href');
+          const text = (a.innerText || a.textContent || '').trim();
+          if (!href || !text) return;
+          let hrefHost = '';
+          try { hrefHost = new URL(href).host.replace(/^www\./i, '').toLowerCase(); } catch (_) {}
+          const domainInTextMatch = text.match(/\b([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/);
+          const textDomain = domainInTextMatch ? domainInTextMatch[1].replace(/^www\./i, '').toLowerCase() : '';
+          if (textDomain && hrefHost && !hrefHost.endsWith(textDomain)) {
+            deceptiveAnchors.push({ display: text, href });
+          }
+        });
+        if (deceptiveAnchors.length) {
+          const desc = deceptiveAnchors.slice(0, 3).map(l => `"${l.display}" → ${l.href}`).join(', ');
+          analysisDetails.push(`Deceptive links (DOM) detected: ${desc}${deceptiveAnchors.length > 3 ? ` and ${deceptiveAnchors.length - 3} more` : ''}`);
+          heuristics.suspiciousElements.push(...deceptiveAnchors.map(l => l.href));
+        }
+      } catch (e) {
+        logDebug('DOM deceptive link extraction failed', e);
+      }
+
       logDebug('Inserting phishing indicator', { 
         finalScore, 
         detailsCount: analysisDetails.length,
