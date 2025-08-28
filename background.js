@@ -92,18 +92,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           console.log('[PHISHING-EXT] FastAPI response status:', res.status, res.statusText);
         } else {
           // For OpenAI-style APIs
-          const payload = {
-            model: model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userContent }
-            ],
-            temperature: 0
-          };
-          
+          const isResponsesApi = /\/v1\/responses\b/.test(endpoint);
+          // Use a safe default model if none provided or whitespace
+          const selectedModel = (model && typeof model === 'string' && model.trim()) ? model.trim() : 'gpt-4o-mini';
+          let payload;
+          if (isResponsesApi) {
+            // OpenAI Responses API format
+            payload = {
+              model: selectedModel,
+              input: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userContent }
+              ],
+              temperature: 0
+            };
+          } else {
+            // Chat Completions format (default)
+            payload = {
+              model: selectedModel,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userContent }
+              ],
+              temperature: 0
+            };
+          }
+
           console.log('[PHISHING-EXT] Making OpenAI request to:', endpoint);
           console.log('[PHISHING-EXT] OpenAI payload:', payload);
-          
+
           res = await fetch(endpoint, {
             method: 'POST',
             headers: {
@@ -112,7 +129,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             },
             body: JSON.stringify(payload)
           });
-          
+
           console.log('[PHISHING-EXT] OpenAI response status:', res.status, res.statusText);
         }
         if (!res.ok) {
@@ -122,18 +139,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             statusText: res.statusText,
             error: errorText
           });
-          sendResponse({ error: `LLM request failed: ${res.status} ${res.statusText}` });
+          // Surface body back for easier debugging
+          sendResponse({ error: `LLM request failed: ${res.status} ${res.statusText}`, detail: errorText });
           return;
         }
         const data = await res.json();
         console.log('[PHISHING-EXT] Raw API response:', data);
         
-        // Handle OpenAI-style responses (both OpenAI and FastAPI should use this format)
+        // Handle OpenAI-style responses
         let content;
-        if (data.choices && data.choices.length > 0) {
-          content = data.choices[0].message.content.trim();
-        } else if (data.message) {
-          content = data.message.content.trim();
+        if (data.choices && data.choices.length > 0 && data.choices[0].message?.content) {
+          // Chat Completions style
+          content = (data.choices[0].message.content || '').trim();
+        } else if (Array.isArray(data.output) && data.output.length) {
+          // Responses API: concatenate text items
+          const parts = [];
+          for (const item of data.output) {
+            if (item.type === 'output_text' && item.text) parts.push(item.text);
+            if (item.type === 'message' && Array.isArray(item.content)) {
+              for (const c of item.content) { if (c.type === 'output_text' && c.text) parts.push(c.text); }
+            }
+          }
+          content = parts.join('\n').trim();
+          if (!content && typeof data.output_text === 'string') content = data.output_text.trim();
+        } else if (typeof data.output_text === 'string') {
+          // Some Responses variants return output_text directly
+          content = data.output_text.trim();
+        } else if (data.message && data.message.content) {
+          content = String(data.message.content).trim();
         } else {
           console.error('[PHISHING-EXT] Invalid LLM response format:', data);
           sendResponse({ error: 'Invalid LLM response format' });

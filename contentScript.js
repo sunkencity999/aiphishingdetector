@@ -1687,8 +1687,9 @@
         }
         logDebug('AI analysis response received', response);
         if (response && response.error) {
-          logWarn('AI analysis failed', response.error);
-          finishWithScore(NaN, `AI Error: ${response.error}`);
+          const detail = response.detail ? ` — ${String(response.detail).slice(0, 500)}` : '';
+          logWarn('AI analysis failed', `${response.error}${detail}`);
+          finishWithScore(NaN, `AI Error: ${response.error}${detail}`);
         } else if (response && typeof response.score === 'number') {
           logInfo('AI analysis successful', { score: response.score });
           finishWithScore(response.score, response.explanation || null);
