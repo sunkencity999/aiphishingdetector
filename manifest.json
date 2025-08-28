@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Joby Security Extension",
-  "version": "2.2",
+  "version": "2.3",
   "description": "Analyzes email headers and bodies directly within your browser to provide a phishing confidence score and highlights suspicious elements. Uses heuristics and an optional AI integration via an OpenAI‑style API endpoint to improve accuracy.",
   "icons": {
     "16": "icon16.png",
